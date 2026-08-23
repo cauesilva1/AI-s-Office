@@ -114,7 +114,7 @@ export default function AgentPanel() {
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="absolute top-0 right-0 z-50 w-[420px] h-full bg-[#16241a] border-l border-white/5 shadow-2xl flex flex-col"
+        className="absolute top-0 right-0 z-50 w-[420px] h-full bg-[#101a29] border-l border-cyan-400/15 shadow-2xl flex flex-col"
       >
         {/* Header */}
         <div className="p-4 border-b border-white/5 flex items-start gap-3">
@@ -132,7 +132,7 @@ export default function AgentPanel() {
               <select
                 value={agent.model}
                 onChange={(e) => setAgentModel(agent.id, e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-md text-[10px] text-white/70 px-1.5 py-0.5 max-w-[240px] focus:outline-none focus:border-amber-500/50"
+                className="bg-cyan-500/8 border border-cyan-400/20 rounded-md text-[10px] text-cyan-100/80 px-1.5 py-0.5 max-w-[240px] focus:outline-none focus:border-cyan-300/45"
               >
                 {!HF_MODELS.includes(agent.model) && <option value={agent.model}>{agent.model}</option>}
                 {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
@@ -167,8 +167,8 @@ export default function AgentPanel() {
                   msg.role === "user" 
                     ? msg.handoffFrom 
                       ? "bg-amber-500/10 border border-amber-500/20 text-amber-100/80 rounded-br-sm" 
-                      : "bg-[#e9b65f]/90 text-[#1c1712] rounded-br-sm"
-                    : "bg-white/5 text-white/85 rounded-bl-sm"
+                      : "bg-violet-500/90 text-white rounded-br-sm"
+                    : "bg-cyan-500/8 border border-cyan-400/10 text-cyan-50/90 rounded-bl-sm"
                 }`}
               >
                 {msg.content}
@@ -215,7 +215,7 @@ export default function AgentPanel() {
             <button
               onClick={() => setHandoffOpen(o => !o)}
               disabled={handoffLoading}
-              className="w-full flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 font-display font-bold text-xs uppercase tracking-wider rounded-full py-2 transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 text-violet-200 font-display font-bold text-xs uppercase tracking-wider rounded-full py-2 transition-colors disabled:opacity-50"
             >
               <ArrowRightLeft className="w-3.5 h-3.5" />
               Passar o bastão
@@ -243,7 +243,7 @@ export default function AgentPanel() {
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || loading}
-                className="bg-[#e9b65f] hover:bg-[#d4a34e] disabled:opacity-40 disabled:cursor-not-allowed text-[#1c1712] rounded-full p-2.5 transition-all active:scale-95"
+                className="bg-violet-500 hover:bg-violet-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-full p-2.5 transition-all active:scale-95"
                 title="Enviar"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

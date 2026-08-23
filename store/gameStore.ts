@@ -2,17 +2,31 @@
 
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import { OfficeState, Agent, Desk, Sector, Message, FeedItem } from "@/lib/game/types"
-import { SECTORS, STARTING_AGENTS } from "@/lib/game/constants"
+import { OfficeState, Agent, Desk, Sector, Message, FeedItem, Mission, MissionStep, LayoutMode } from "@/lib/game/types"
+import { BASE_SECTORS, SECTOR_LAYOUTS, STARTING_AGENTS } from "@/lib/game/constants"
 import { generateLogEntry } from "@/lib/game/engine"
 
-function createInitialDesks(): Desk[] {
+function uid(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function buildSectors(layoutMode: LayoutMode): Sector[] {
+  const layout = SECTOR_LAYOUTS[layoutMode]
+  return BASE_SECTORS.map((base) => ({
+    ...base,
+    zone: layout[base.id as keyof typeof layout],
+    desks: [],
+    unlocked: true,
+  }))
+}
+
+function createInitialDesks(sectors: Sector[]): Desk[] {
   const desks: Desk[] = []
   let deskId = 0
-  SECTORS.forEach(sector => {
+  sectors.forEach(sector => {
     for (let i = 0; i < 4; i++) {
-      const offsetX = (i % 2) * 3 + 1
-      const offsetY = Math.floor(i / 2) * 3 + 1
+      const offsetX = (i % 2) * Math.max(2, Math.floor(sector.zone.w / 2)) + 1
+      const offsetY = Math.floor(i / 2) * Math.max(2, Math.floor(sector.zone.h / 2)) + 1
       desks.push({
         id: `desk-${sector.id}-${deskId++}`,
         sectorId: sector.id,
@@ -52,12 +66,19 @@ function createInitialAgents(desks: Desk[]): Agent[] {
   return agents
 }
 
-function createInitialSectors(desks: Desk[]): Sector[] {
-  return SECTORS.map(s => ({
-    ...s,
-    desks: desks.filter(d => d.sectorId === s.id).map(d => d.id),
-    unlocked: true,
-  }))
+function assignDeskReferences(sectors: Sector[], desks: Desk[]): Sector[] {
+  return sectors.map((s) => ({ ...s, desks: desks.filter(d => d.sectorId === s.id).map(d => d.id) }))
+}
+
+function remapAgentPositions(agents: Agent[], desks: Desk[]): { agents: Agent[]; desks: Desk[] } {
+  const freeDesks = [...desks]
+  const updatedAgents = agents.map((agent) => {
+    const desk = freeDesks.find((d) => d.sectorId === agent.sectorId && !d.agentId)
+    if (!desk) return agent
+    desk.agentId = agent.id
+    return { ...agent, position: { ...desk.position } }
+  })
+  return { agents: updatedAgents, desks: freeDesks }
 }
 
 const initialState: OfficeState = {
@@ -66,6 +87,11 @@ const initialState: OfficeState = {
   agents: [],
   desks: [],
   teamFeed: [],
+  missionQueue: [],
+  activeMission: null,
+  missionHistory: [],
+  routingMode: "hybrid",
+  layoutMode: "wide",
   aiProvider: "mock",
   hfToken: "",
   hfModel: "",
@@ -97,6 +123,12 @@ interface OfficeStore extends OfficeState {
   clearChatHistory: (agentId: string) => void
   setAgentModel: (agentId: string, model: string) => void
   addFeedItem: (item: Omit<FeedItem, "id" | "timestamp">) => void
+  createMission: (payload: { prompt: string; strategy: Mission["strategy"]; primarySectorId: string; route: MissionStep[] }) => Mission
+  setActiveMission: (mission: Mission | null) => void
+  updateActiveMission: (partial: Partial<Mission>) => void
+  completeActiveMission: (result: string) => void
+  failActiveMission: (error: string) => void
+  setLayoutMode: (mode: LayoutMode) => void
 }
 
 export const useGameStore = create<OfficeStore>()(
@@ -105,19 +137,21 @@ export const useGameStore = create<OfficeStore>()(
       ...initialState,
 
       initGame: () => {
-        const desks = createInitialDesks()
+        const sectors = buildSectors(get().layoutMode)
+        const desks = createInitialDesks(sectors)
         const agents = createInitialAgents(desks)
-        const sectors = createInitialSectors(desks)
+        const sectorsWithDesks = assignDeskReferences(sectors, desks)
         const { hfToken, aiProvider } = get()
-        set({ ...initialState, desks, agents, sectors, hfToken, aiProvider })
+        set({ ...initialState, desks, agents, sectors: sectorsWithDesks, hfToken, aiProvider, layoutMode: get().layoutMode })
       },
 
       resetGame: () => {
-        const desks = createInitialDesks()
+        const sectors = buildSectors(get().layoutMode)
+        const desks = createInitialDesks(sectors)
         const agents = createInitialAgents(desks)
-        const sectors = createInitialSectors(desks)
+        const sectorsWithDesks = assignDeskReferences(sectors, desks)
         const { hfToken, aiProvider } = get()
-        set({ ...initialState, desks, agents, sectors, hfToken, aiProvider })
+        set({ ...initialState, desks, agents, sectors: sectorsWithDesks, hfToken, aiProvider, layoutMode: get().layoutMode })
       },
 
       selectDesk: (deskId) => set({ selectedDeskId: deskId, selectedAgentId: null }),
@@ -128,7 +162,7 @@ export const useGameStore = create<OfficeStore>()(
         const desk = state.desks.find(d => d.sectorId === data.sectorId && !d.agentId)
         if (!desk) return false
 
-        const id = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+        const id = uid("agent")
         const newAgent: Agent = {
           id,
           name: data.name,
@@ -194,21 +228,108 @@ export const useGameStore = create<OfficeStore>()(
 
       addFeedItem: (item) => set(state => ({
         teamFeed: [
-          { ...item, id: `feed_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, timestamp: Date.now() },
+          { ...item, id: uid("feed"), timestamp: Date.now() },
           ...state.teamFeed,
         ].slice(0, 100)
       })),
+
+      createMission: ({ prompt, strategy, primarySectorId, route }) => {
+        const mission: Mission = {
+          id: uid("mission"),
+          prompt,
+          strategy,
+          primarySectorId,
+          route,
+          status: "queued",
+          createdAt: Date.now(),
+        }
+        set((state) => {
+          const feedEntry: FeedItem = {
+            id: uid("feed"),
+            kind: "info",
+            text: `Nova missão criada: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
+            agentId: route.find((step) => step.agentId)?.agentId || state.agents[0]?.id || "",
+            missionId: mission.id,
+            timestamp: Date.now(),
+          }
+          return {
+            missionQueue: [mission, ...state.missionQueue].slice(0, 30),
+            activeMission: mission,
+            teamFeed: [
+              feedEntry,
+              ...state.teamFeed,
+            ].slice(0, 100),
+          }
+        })
+        return mission
+      },
+
+      setActiveMission: (mission) => set({ activeMission: mission }),
+
+      updateActiveMission: (partial) => set((state) => {
+        if (!state.activeMission) return state
+        const updated = { ...state.activeMission, ...partial }
+        return {
+          activeMission: updated,
+          missionQueue: state.missionQueue.map((m) => m.id === updated.id ? updated : m),
+        }
+      }),
+
+      completeActiveMission: (result) => set((state) => {
+        if (!state.activeMission) return state
+        const completed: Mission = {
+          ...state.activeMission,
+          status: "completed",
+          finalResult: result,
+          completedAt: Date.now(),
+        }
+        return {
+          activeMission: null,
+          missionQueue: state.missionQueue.map((m) => m.id === completed.id ? completed : m),
+          missionHistory: [completed, ...state.missionHistory].slice(0, 40),
+        }
+      }),
+
+      failActiveMission: (error) => set((state) => {
+        if (!state.activeMission) return state
+        const failed: Mission = {
+          ...state.activeMission,
+          status: "failed",
+          error,
+          completedAt: Date.now(),
+        }
+        return {
+          activeMission: null,
+          missionQueue: state.missionQueue.map((m) => m.id === failed.id ? failed : m),
+          missionHistory: [failed, ...state.missionHistory].slice(0, 40),
+        }
+      }),
+
+      setLayoutMode: (mode) => set((state) => {
+        if (state.layoutMode === mode) return state
+        const sectors = buildSectors(mode)
+        const cleanDesks = createInitialDesks(sectors)
+        const repositioned = remapAgentPositions(state.agents, cleanDesks)
+        const sectorsWithDesks = assignDeskReferences(sectors, repositioned.desks)
+        return {
+          layoutMode: mode,
+          sectors: sectorsWithDesks,
+          desks: repositioned.desks,
+          agents: repositioned.agents,
+        }
+      }),
     }),
     {
       name: "agent-office-save",
-      version: 3,
+      version: 4,
       migrate: (persisted: any, version) => {
         // Estruturas antigas (era um jogo) — recria o escritório do zero, preservando o token
-        if (version < 3) {
+        if (version < 4) {
           return {
             ...initialState,
             hfToken: persisted?.hfToken || "",
             aiProvider: persisted?.aiProvider === "huggingface" ? "huggingface" : "mock",
+            layoutMode: persisted?.layoutMode === "compact" ? "compact" : "wide",
           }
         }
         return persisted
@@ -218,6 +339,10 @@ export const useGameStore = create<OfficeStore>()(
         agents: state.agents,
         desks: state.desks,
         teamFeed: state.teamFeed,
+        missionQueue: state.missionQueue,
+        missionHistory: state.missionHistory,
+        routingMode: state.routingMode,
+        layoutMode: state.layoutMode,
         aiProvider: state.aiProvider,
         hfToken: state.hfToken,
         hfModel: state.hfModel,

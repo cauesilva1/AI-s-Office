@@ -1,32 +1,35 @@
 "use client"
 
-import { Application, Container, Graphics, Text, TextStyle, Sprite, FederatedPointerEvent } from "pixi.js"
+import { Application, Container, Graphics, Text, TextStyle } from "pixi.js"
 import { useGameStore } from "@/store/gameStore"
-import { TILE_WIDTH, TILE_HEIGHT, COLORS, SECTORS } from "@/lib/game/constants"
-import { Agent, Desk, Sector } from "@/lib/game/types"
-
-const ISO_ANGLE = 0.463647609 // atan(0.5)
+import { TILE_WIDTH, TILE_HEIGHT } from "@/lib/game/constants"
 
 export class OfficeScene {
   private app: Application
   private scene: Container
   private store: ReturnType<typeof useGameStore.getState>
-  private tiles: Map<string, Graphics> = new Map()
   private agents: Map<string, Container> = new Map()
-  private desks: Map<string, Container> = new Map()
-  private effects: Container
-  private lighting: Graphics
-  private timeOfDay = 0
+  private lightingLayer: Graphics
+  private staticLayer: Container
+  private dynamicLayer: Container
   private selectedId: string | null = null
+  private isDragging = false
+  private lastPointer = { x: 0, y: 0 }
+  private listenersBound = false
+  private lastLayoutSignature = ""
+  private lastAgentVisualSignature = ""
 
   constructor(app: Application, scene: Container) {
     this.app = app
     this.scene = scene
     this.store = useGameStore.getState()
-    this.effects = new Container()
-    this.lighting = new Graphics()
-    scene.addChild(this.effects)
-    scene.addChild(this.lighting)
+    this.staticLayer = new Container()
+    this.dynamicLayer = new Container()
+    this.lightingLayer = new Graphics()
+    this.scene.addChild(this.staticLayer)
+    this.scene.addChild(this.dynamicLayer)
+    this.scene.addChild(this.lightingLayer)
+    this.bindInteractions()
     this.render()
   }
 
@@ -37,62 +40,90 @@ export class OfficeScene {
     }
   }
 
-  private screenToIso(screenX: number, screenY: number): { x: number; y: number } {
-    const x = (screenX / (TILE_WIDTH * 0.5) + screenY / (TILE_HEIGHT * 0.5)) / 2
-    const y = (screenY / (TILE_HEIGHT * 0.5) - screenX / (TILE_WIDTH * 0.5)) / 2
-    return { x: Math.round(x), y: Math.round(y) }
+  private buildLayoutSignature() {
+    return JSON.stringify({
+      layout: this.store.layoutMode,
+      selectedDeskId: this.store.selectedDeskId,
+      sectors: this.store.sectors.map((s) => ({ id: s.id, zone: s.zone })),
+      desks: this.store.desks.map((d) => ({ id: d.id, p: d.position, agentId: d.agentId })),
+    })
   }
 
-  render() {
+  private buildAgentSignature() {
+    return JSON.stringify({
+      selectedAgentId: this.store.selectedAgentId,
+      agents: this.store.agents.map((a) => ({
+        id: a.id,
+        position: a.position,
+        spriteState: a.spriteState,
+        model: a.model,
+        name: a.name,
+      })),
+    })
+  }
+
+  render(full = true) {
+    const nextLayoutSignature = this.buildLayoutSignature()
+    const nextAgentSignature = this.buildAgentSignature()
+    let staticChanged = false
+
+    if (full || nextLayoutSignature !== this.lastLayoutSignature) {
+      this.renderStaticWorld()
+      this.lastLayoutSignature = nextLayoutSignature
+      staticChanged = true
+    }
+
+    if (full || nextAgentSignature !== this.lastAgentVisualSignature) {
+      this.renderAgents()
+      this.lastAgentVisualSignature = nextAgentSignature
+    }
+
+    this.renderLighting()
+    if (staticChanged || full) this.centerScene()
+  }
+
+  private renderStaticWorld() {
     this.scene.removeChildren()
-    this.tiles.clear()
-    this.agents.clear()
-    this.desks.clear()
-
-    this.effects = new Container()
-    this.lighting = new Graphics()
-    this.scene.addChild(this.effects)
-    this.scene.addChild(this.lighting)
-
+    this.staticLayer = new Container()
+    this.dynamicLayer = new Container()
+    this.lightingLayer = new Graphics()
+    this.scene.addChild(this.staticLayer)
+    this.scene.addChild(this.dynamicLayer)
+    this.scene.addChild(this.lightingLayer)
     this.renderGrid()
     this.renderSectors()
+    this.renderSectorWalls()
     this.renderDesks()
-    this.renderCoffeeArea()
-    this.renderAgents()
-    this.renderLighting()
-    this.setupInteraction()
+  }
+
+  private getWorkspaceBounds() {
+    const sectors = this.store.sectors
+    const minX = Math.min(...sectors.map(s => s.zone.x)) - 3
+    const minY = Math.min(...sectors.map(s => s.zone.y)) - 3
+    const maxX = Math.max(...sectors.map(s => s.zone.x + s.zone.w)) + 3
+    const maxY = Math.max(...sectors.map(s => s.zone.y + s.zone.h)) + 3
+    return { minX, minY, maxX, maxY }
   }
 
   private renderGrid() {
-    const grid = new Container()
-    const cols = 24
-    const rows = 24
+    const grid = new Graphics()
+    const { minX, minY, maxX, maxY } = this.getWorkspaceBounds()
 
-    for (let x = 0; x < cols; x++) {
-      for (let y = 0; y < rows; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
         const pos = this.isoToScreen(x, y)
-        const tile = new Graphics()
-
-        tile.moveTo(0, -TILE_HEIGHT / 2)
-        tile.lineTo(TILE_WIDTH / 2, 0)
-        tile.lineTo(0, TILE_HEIGHT / 2)
-        tile.lineTo(-TILE_WIDTH / 2, 0)
-        tile.closePath()
+        grid.moveTo(pos.x, pos.y - TILE_HEIGHT / 2)
+        grid.lineTo(pos.x + TILE_WIDTH / 2, pos.y)
+        grid.lineTo(pos.x, pos.y + TILE_HEIGHT / 2)
+        grid.lineTo(pos.x - TILE_WIDTH / 2, pos.y)
+        grid.closePath()
 
         const isEven = (x + y) % 2 === 0
-        tile.fill({ color: isEven ? 0xc3d2a4 : 0xaec18b, alpha: 0.6 })
-        tile.stroke({ color: 0x152018, width: 0.5, alpha: 0.15 })
-
-        tile.x = pos.x
-        tile.y = pos.y
-        tile.eventMode = "static"
-        tile.cursor = "pointer"
-
-        grid.addChild(tile)
-        this.tiles.set(`${x},${y}`, tile)
+        grid.fill({ color: isEven ? 0x24363d : 0x1f3037, alpha: 0.72 })
+        grid.stroke({ color: 0x0b1116, width: 0.5, alpha: 0.18 })
       }
     }
-    this.scene.addChild(grid)
+    this.staticLayer.addChild(grid)
   }
 
   private renderSectors() {
@@ -132,8 +163,59 @@ export class OfficeScene {
       label.y = center.y - 20
       label.alpha = 0.7
 
-      this.scene.addChild(graphics)
-      this.scene.addChild(label)
+      this.staticLayer.addChild(graphics)
+      this.staticLayer.addChild(label)
+    })
+  }
+
+  private drawIsoWallSegment(start: { x: number; y: number }, end: { x: number; y: number }, height = 18) {
+    const p1 = this.isoToScreen(start.x, start.y)
+    const p2 = this.isoToScreen(end.x, end.y)
+    const wall = new Graphics()
+
+    wall.moveTo(p1.x, p1.y)
+    wall.lineTo(p2.x, p2.y)
+    wall.lineTo(p2.x, p2.y - height)
+    wall.lineTo(p1.x, p1.y - height)
+    wall.closePath()
+    wall.fill({ color: 0x1f3224, alpha: 0.7 })
+    wall.stroke({ color: 0x2d4d36, width: 1, alpha: 0.8 })
+
+    this.staticLayer.addChild(wall)
+  }
+
+  private renderSectorWalls() {
+    const sectorsById = new Map(this.store.sectors.map(s => [s.id, s]))
+    const pairs: Array<[string, string, "vertical" | "horizontal"]> = [
+      ["engineering", "design", "vertical"],
+      ["research", "data", "vertical"],
+      ["devops", "growth", "vertical"],
+      ["engineering", "research", "horizontal"],
+      ["research", "devops", "horizontal"],
+      ["design", "data", "horizontal"],
+      ["data", "growth", "horizontal"],
+    ]
+
+    pairs.forEach(([aId, bId, dir]) => {
+      const a = sectorsById.get(aId)
+      const b = sectorsById.get(bId)
+      if (!a || !b) return
+
+      if (dir === "vertical") {
+        const wallX = a.zone.x + a.zone.w
+        const yStart = Math.max(a.zone.y, b.zone.y)
+        const yEnd = Math.min(a.zone.y + a.zone.h, b.zone.y + b.zone.h)
+        const gapY = Math.floor((yStart + yEnd) / 2)
+        this.drawIsoWallSegment({ x: wallX, y: yStart }, { x: wallX, y: gapY - 1 })
+        this.drawIsoWallSegment({ x: wallX, y: gapY + 1 }, { x: wallX, y: yEnd })
+      } else {
+        const wallY = a.zone.y + a.zone.h
+        const xStart = Math.max(a.zone.x, b.zone.x)
+        const xEnd = Math.min(a.zone.x + a.zone.w, b.zone.x + b.zone.w)
+        const gapX = Math.floor((xStart + xEnd) / 2)
+        this.drawIsoWallSegment({ x: xStart, y: wallY }, { x: gapX - 1, y: wallY })
+        this.drawIsoWallSegment({ x: gapX + 1, y: wallY }, { x: xEnd, y: wallY })
+      }
     })
   }
 
@@ -258,54 +340,13 @@ export class OfficeScene {
         this.store.selectDesk(desk.id)
       })
 
-      this.scene.addChild(container)
-      this.desks.set(desk.id, container)
+      this.staticLayer.addChild(container)
     })
   }
 
-  private renderCoffeeArea() {
-    const pos = this.isoToScreen(12, 12)
-    const container = new Container()
-    container.x = pos.x
-    container.y = pos.y
-
-    // Table
-    const table = new Graphics()
-    table.ellipse(0, 0, 25, 12)
-    table.fill({ color: 0xf9f3e0 })
-    table.stroke({ color: 0xded2a9, width: 1 })
-
-    // Leg
-    const leg = new Graphics()
-    leg.moveTo(0, 0)
-    leg.lineTo(0, 15)
-    leg.stroke({ color: 0x243a29, width: 3 })
-
-    // Coffee cup
-    const cup = new Graphics()
-    cup.moveTo(-8, -5)
-    cup.lineTo(8, -5)
-    cup.lineTo(6, 5)
-    cup.lineTo(-6, 5)
-    cup.closePath()
-    cup.fill({ color: 0xe8c78c })
-
-    container.addChild(leg)
-    container.addChild(table)
-    container.addChild(cup)
-
-    // Steam particles
-    for (let i = 0; i < 3; i++) {
-      const steam = new Graphics()
-      steam.circle(-5 + i * 5, -12 - i * 3, 2)
-      steam.fill({ color: 0xffffff, alpha: 0.3 })
-      container.addChild(steam)
-    }
-
-    this.scene.addChild(container)
-  }
-
   private renderAgents() {
+    this.dynamicLayer.removeChildren()
+    this.agents.clear()
     const agents = this.store.agents
     agents.forEach(agent => {
       const pos = this.isoToScreen(agent.position.x, agent.position.y)
@@ -377,15 +418,6 @@ export class OfficeScene {
       modelText.y = 24
       container.addChild(modelText)
 
-      // Animation: bobbing
-      let time = 0
-      const tick = () => {
-        time += 0.03
-        const bob = agent.spriteState === "working" ? Math.sin(time * 2) * 1.5 : Math.sin(time) * 1
-        container.y = pos.y - 35 + bob
-      }
-      this.app.ticker.add(tick)
-
       // Selection
       if (this.store.selectedAgentId === agent.id) {
         const highlight = new Graphics()
@@ -404,83 +436,117 @@ export class OfficeScene {
         this.store.selectAgent(agent.id)
       })
 
-      this.scene.addChild(container)
+      this.dynamicLayer.addChild(container)
       this.agents.set(agent.id, container)
     })
   }
 
   private renderLighting() {
-    const hour = this.store.hour
-    let overlayColor = 0x000000
-    let alpha = 0
-
-    if (hour >= 6 && hour < 18) {
-      // Day
-      overlayColor = 0xfff4d6
-      alpha = 0.05
-    } else if (hour >= 18 && hour < 22) {
-      // Sunset
-      overlayColor = 0xff9966
-      alpha = 0.15
-    } else {
-      // Night
-      overlayColor = 0x1a237e
-      alpha = 0.35
-    }
-
-    this.lighting.clear()
-    this.lighting.rect(-2000, -2000, 4000, 4000)
-    this.lighting.fill({ color: overlayColor, alpha })
+    const overlayColor = 0x121723
+    const alpha = this.store.layoutMode === "compact" ? 0.16 : 0.2
+    this.lightingLayer.clear()
+    this.lightingLayer.rect(-2000, -2000, 4000, 4000)
+    this.lightingLayer.fill({ color: overlayColor, alpha })
   }
 
-  private setupInteraction() {
-    // Pan with drag
-    let isDragging = false
-    let lastPos = { x: 0, y: 0 }
+  private centerScene() {
+    const { minX, minY, maxX, maxY } = this.getWorkspaceBounds()
+    const center = this.isoToScreen((minX + maxX) / 2, (minY + maxY) / 2)
+    this.scene.scale.set(this.store.layoutMode === "compact" ? 1.07 : 0.92)
+    this.scene.x = this.app.renderer.width / 2 - center.x * this.scene.scale.x
+    this.scene.y = this.app.renderer.height / 2 - center.y * this.scene.scale.y
+  }
 
-    this.app.canvas.addEventListener("pointerdown", (e) => {
-      isDragging = true
-      lastPos = { x: e.clientX, y: e.clientY }
-    })
+  private onPointerDown = (e: PointerEvent) => {
+    this.isDragging = true
+    this.lastPointer = { x: e.clientX, y: e.clientY }
+  }
 
-    this.app.canvas.addEventListener("pointermove", (e) => {
-      if (!isDragging) return
-      const dx = e.clientX - lastPos.x
-      const dy = e.clientY - lastPos.y
-      this.scene.x += dx
-      this.scene.y += dy
-      lastPos = { x: e.clientX, y: e.clientY }
-    })
+  private onPointerMove = (e: PointerEvent) => {
+    if (!this.isDragging) return
+    const dx = e.clientX - this.lastPointer.x
+    const dy = e.clientY - this.lastPointer.y
+    this.scene.x += dx
+    this.scene.y += dy
+    this.scene.x = Math.max(-400, Math.min(this.scene.x, this.app.renderer.width + 400))
+    this.scene.y = Math.max(-280, Math.min(this.scene.y, this.app.renderer.height + 280))
+    this.lastPointer = { x: e.clientX, y: e.clientY }
+  }
 
-    this.app.canvas.addEventListener("pointerup", () => {
-      isDragging = false
-    })
+  private onPointerUp = () => {
+    this.isDragging = false
+  }
 
-    // Zoom with wheel
-    this.app.canvas.addEventListener("wheel", (e) => {
-      e.preventDefault()
-      const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1
-      const newScale = Math.max(0.5, Math.min(2, this.scene.scale.x * scaleFactor))
-      this.scene.scale.set(newScale)
+  private onWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    const scaleFactor = e.deltaY > 0 ? 0.92 : 1.08
+    const newScale = Math.max(0.78, Math.min(1.2, this.scene.scale.x * scaleFactor))
+    this.scene.scale.set(newScale)
+  }
+
+  private bindInteractions() {
+    if (this.listenersBound) return
+    this.listenersBound = true
+    this.app.canvas.addEventListener("pointerdown", this.onPointerDown)
+    this.app.canvas.addEventListener("pointermove", this.onPointerMove)
+    this.app.canvas.addEventListener("pointerup", this.onPointerUp)
+    this.app.canvas.addEventListener("pointerleave", this.onPointerUp)
+    this.app.canvas.addEventListener("wheel", this.onWheel, { passive: false })
+  }
+
+  private animateAgents() {
+    const t = performance.now() * 0.001
+    this.store.agents.forEach((agent) => {
+      const container = this.agents.get(agent.id)
+      if (!container) return
+      const pos = this.isoToScreen(agent.position.x, agent.position.y)
+      const bob = agent.spriteState === "working" ? Math.sin(t * 5 + pos.x * 0.02) * 1.7 : Math.sin(t * 2 + pos.x * 0.01) * 0.8
+      container.y = pos.y - 35 + bob
     })
   }
 
   update() {
     const currentStore = useGameStore.getState()
-    if (currentStore.selectedDeskId !== this.selectedId) {
-      this.selectedId = currentStore.selectedDeskId
-      this.render()
+    const nextLayoutSignature = JSON.stringify({
+      layout: currentStore.layoutMode,
+      selectedDeskId: currentStore.selectedDeskId,
+      sectors: currentStore.sectors.map((s) => ({ id: s.id, zone: s.zone })),
+      desks: currentStore.desks.map((d) => ({ id: d.id, p: d.position, agentId: d.agentId })),
+    })
+    const nextAgentSignature = JSON.stringify({
+      selectedAgentId: currentStore.selectedAgentId,
+      agents: currentStore.agents.map((a) => ({
+        id: a.id,
+        position: a.position,
+        spriteState: a.spriteState,
+        model: a.model,
+        name: a.name,
+      })),
+    })
+
+    this.store = currentStore
+
+    if (nextLayoutSignature !== this.lastLayoutSignature) {
+      this.render(true)
       return
     }
-    if (currentStore.selectedAgentId !== this.store.selectedAgentId) {
-      this.store = currentStore
-      this.render()
+    if (nextAgentSignature !== this.lastAgentVisualSignature) {
+      this.render(false)
       return
     }
+
+    this.animateAgents()
     this.renderLighting()
   }
 
   destroy() {
-    this.app.ticker.stop()
+    if (this.listenersBound) {
+      this.app.canvas.removeEventListener("pointerdown", this.onPointerDown)
+      this.app.canvas.removeEventListener("pointermove", this.onPointerMove)
+      this.app.canvas.removeEventListener("pointerup", this.onPointerUp)
+      this.app.canvas.removeEventListener("pointerleave", this.onPointerUp)
+      this.app.canvas.removeEventListener("wheel", this.onWheel)
+      this.listenersBound = false
+    }
   }
 }

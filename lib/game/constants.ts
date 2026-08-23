@@ -3,14 +3,33 @@ export const TILE_HEIGHT = 32
 export const GRID_COLS = 24
 export const GRID_ROWS = 16
 
-export const SECTORS = [
-  { id: "engineering", name: "Engenharia", color: "#2dd4bf", zone: { x: 2, y: 2, w: 8, h: 6 } },
-  { id: "design", name: "Design", color: "#a78bfa", zone: { x: 12, y: 2, w: 8, h: 6 } },
-  { id: "research", name: "Pesquisa", color: "#fbbf24", zone: { x: 2, y: 9, w: 8, h: 6 } },
-  { id: "data", name: "Dados", color: "#60a5fa", zone: { x: 12, y: 9, w: 8, h: 6 } },
-  { id: "devops", name: "DevOps", color: "#22d3ee", zone: { x: 2, y: 16, w: 8, h: 6 } },
-  { id: "growth", name: "Growth", color: "#f87171", zone: { x: 12, y: 16, w: 8, h: 6 } },
+export const BASE_SECTORS = [
+  { id: "engineering", name: "Engenharia", color: "#2dd4bf" },
+  { id: "design", name: "Design", color: "#a78bfa" },
+  { id: "research", name: "Pesquisa", color: "#fbbf24" },
+  { id: "data", name: "Dados", color: "#60a5fa" },
+  { id: "devops", name: "DevOps", color: "#22d3ee" },
+  { id: "growth", name: "Growth", color: "#f87171" },
 ]
+
+export const SECTOR_LAYOUTS = {
+  wide: {
+    engineering: { x: 2, y: 2, w: 8, h: 6 },
+    design: { x: 12, y: 2, w: 8, h: 6 },
+    research: { x: 2, y: 9, w: 8, h: 6 },
+    data: { x: 12, y: 9, w: 8, h: 6 },
+    devops: { x: 2, y: 16, w: 8, h: 6 },
+    growth: { x: 12, y: 16, w: 8, h: 6 },
+  },
+  compact: {
+    engineering: { x: 3, y: 3, w: 6, h: 5 },
+    design: { x: 10, y: 3, w: 6, h: 5 },
+    research: { x: 3, y: 9, w: 6, h: 5 },
+    data: { x: 10, y: 9, w: 6, h: 5 },
+    devops: { x: 3, y: 15, w: 6, h: 5 },
+    growth: { x: 10, y: 15, w: 6, h: 5 },
+  },
+} as const
 
 // Modelos gratuitos disponíveis via Hugging Face Inference (router)
 export const HF_MODELS = [
@@ -40,13 +59,13 @@ export const AGENT_COLORS = [
 ]
 
 export const COLORS = {
-  floor: ["#c3d2a4", "#aec18b"],
-  wall: { top: "#31543a", right: "#254331", left: "#173025" },
-  desk: { top: "#f7f1de", right: "#e2d7b2", left: "#c9bc90" },
-  panel: "#16241a",
-  panel2: "#1c2e21",
-  amber: "#e9b65f",
-  paper: "#eee6cf",
-  cream: "#f2ecda",
-  ink: "#152018",
+  floor: ["#1f3037", "#24363d"],
+  wall: { top: "#1c2732", right: "#151f29", left: "#101821" },
+  desk: { top: "#f0efe9", right: "#d8d4c5", left: "#bbb4a0" },
+  panel: "#101824",
+  panel2: "#162236",
+  amber: "#f3ba63",
+  paper: "#d8deef",
+  cream: "#edf2ff",
+  ink: "#0c121c",
 }

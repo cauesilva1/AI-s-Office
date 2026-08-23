@@ -7,7 +7,7 @@ import { X, Plus, Cpu } from "lucide-react"
 import { HF_MODELS, AGENT_COLORS } from "@/lib/game/constants"
 
 export default function AddAgentModal() {
-  const { showHire, sectors, desks, agents, toggleModal, addAgent, selectAgent, showToast } = useGameStore()
+  const { showHire, sectors, desks, agents, toggleModal, addAgent, showToast } = useGameStore()
   const [name, setName] = useState("")
   const [role, setRole] = useState("")
   const [model, setModel] = useState(HF_MODELS[0])
@@ -55,7 +55,7 @@ export default function AddAgentModal() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-[#16241a] border border-white/5 rounded-2xl w-full max-w-md overflow-hidden"
+          className="bg-[#101a29] border border-cyan-400/15 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
           <div className="p-5 border-b border-white/5 flex items-center justify-between">
@@ -78,7 +78,7 @@ export default function AddAgentModal() {
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-amber-500/50"
+                    className="flex-1 bg-cyan-500/8 border border-cyan-400/15 rounded-lg px-3 py-2.5 text-cyan-50 text-sm focus:outline-none focus:border-cyan-300/45"
                 >
                   {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -88,7 +88,7 @@ export default function AddAgentModal() {
                 value={customModel}
                 onChange={(e) => setCustomModel(e.target.value)}
                 placeholder="…ou digite outro modelo (org/nome)"
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-amber-500/50"
+                className="w-full bg-cyan-500/8 border border-cyan-400/15 rounded-lg px-3 py-2 text-cyan-50 text-xs placeholder:text-cyan-100/30 focus:outline-none focus:border-cyan-300/45"
               />
             </div>
 
@@ -102,7 +102,7 @@ export default function AddAgentModal() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ex: Ajudante de código"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-cyan-500/8 border border-cyan-400/15 rounded-lg px-3 py-2.5 text-cyan-50 text-sm placeholder:text-cyan-100/30 focus:outline-none focus:border-cyan-300/45"
                 />
               </div>
               <div>
@@ -114,7 +114,7 @@ export default function AddAgentModal() {
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   placeholder="Ex: Revisor"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-cyan-500/8 border border-cyan-400/15 rounded-lg px-3 py-2.5 text-cyan-50 text-sm placeholder:text-cyan-100/30 focus:outline-none focus:border-cyan-300/45"
                 />
               </div>
             </div>
@@ -150,7 +150,7 @@ export default function AddAgentModal() {
 
             <button
               onClick={handleAdd}
-              className="w-full bg-[#e9b65f] hover:bg-[#d4a34e] text-[#1c1712] font-display font-bold text-sm rounded-full py-3 transition-all active:scale-95"
+              className="w-full bg-violet-500 hover:bg-violet-400 text-white font-display font-bold text-sm rounded-full py-3 transition-all active:scale-95"
             >
               Colocar na mesa
             </button>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useEffect, useState } from "react"
+import { useRef, useEffect } from "react"
 import { Application, Container } from "pixi.js"
 import { useGameLoop } from "@/hooks/useGameLoop"
 import { OfficeScene } from "./OfficeScene"
@@ -8,9 +8,7 @@ import { OfficeScene } from "./OfficeScene"
 export default function PixiCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<Application | null>(null)
-  const sceneRef = useRef<Container | null>(null)
   const officeSceneRef = useRef<OfficeScene | null>(null)
-  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     if (!containerRef.current || appRef.current) return
@@ -37,12 +35,9 @@ export default function PixiCanvas() {
 
       const scene = new Container()
       app.stage.addChild(scene)
-      sceneRef.current = scene
 
       const officeScene = new OfficeScene(app, scene)
       officeSceneRef.current = officeScene
-
-      setReady(true)
 
       const handleResize = () => {
         if (!containerRef.current || !appRef.current) return
@@ -50,6 +45,7 @@ export default function PixiCanvas() {
           containerRef.current.clientWidth,
           containerRef.current.clientHeight
         )
+        officeSceneRef.current?.render(true)
       }
 
       window.addEventListener("resize", handleResize)

@@ -54,6 +54,32 @@ export interface FeedItem {
   kind: "message" | "handoff" | "info"
   text: string
   timestamp: number
+  missionId?: string
+  stage?: number
+}
+
+export type RoutingMode = "hybrid"
+export type LayoutMode = "wide" | "compact"
+export type MissionStatus = "queued" | "routing" | "running" | "completed" | "failed"
+
+export interface MissionStep {
+  sectorId: string
+  agentId: string | null
+  note: string
+}
+
+export interface Mission {
+  id: string
+  prompt: string
+  status: MissionStatus
+  strategy: "rules" | "llm" | "manual_override"
+  primarySectorId: string
+  route: MissionStep[]
+  createdAt: number
+  startedAt?: number
+  completedAt?: number
+  finalResult?: string
+  error?: string
 }
 
 export interface OfficeState {
@@ -62,6 +88,11 @@ export interface OfficeState {
   agents: Agent[]
   desks: Desk[]
   teamFeed: FeedItem[]
+  missionQueue: Mission[]
+  activeMission: Mission | null
+  missionHistory: Mission[]
+  routingMode: RoutingMode
+  layoutMode: LayoutMode
   aiProvider: "huggingface" | "mock"
   hfToken: string
   hfModel: string

@@ -14,7 +14,7 @@ function timeAgo(ts: number): string {
 }
 
 export default function ChatModal() {
-  const { showChat, agents, teamFeed, toggleModal, selectAgent } = useGameStore()
+  const { showChat, agents, teamFeed, toggleModal, selectAgent, missionHistory } = useGameStore()
   if (!showChat) return null
 
   return (
@@ -30,7 +30,7 @@ export default function ChatModal() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-[#16241a] border border-white/5 rounded-2xl w-full max-w-md max-h-[70vh] overflow-hidden flex flex-col"
+          className="bg-[#101a29] border border-cyan-400/15 rounded-2xl w-full max-w-md max-h-[70vh] overflow-hidden flex flex-col shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
           <div className="p-5 border-b border-white/5 flex items-center justify-between">
@@ -65,11 +65,14 @@ export default function ChatModal() {
                     <div className="text-white/50 text-[10px] font-bold mb-0.5 flex items-center gap-1.5">
                       {agent.name}
                       <span className="text-white/25 font-normal">{timeAgo(item.timestamp)}</span>
+                      {typeof item.stage === "number" && (
+                        <span className="text-amber-300/80 font-normal">• etapa {item.stage}</span>
+                      )}
                     </div>
                     <div className={`rounded-lg px-3 py-2 text-sm flex items-center gap-2 ${
                       item.kind === "handoff" 
-                        ? "bg-amber-500/10 border border-amber-500/20 text-amber-200/90" 
-                        : "bg-white/5 text-white/80"
+                        ? "bg-amber-500/10 border border-amber-400/25 text-amber-200/90" 
+                        : "bg-cyan-500/8 border border-cyan-400/10 text-cyan-50/85"
                     }`}>
                       {item.kind === "handoff" && <ArrowRightLeft className="w-3.5 h-3.5 flex-shrink-0" />}
                       {item.text}
@@ -79,6 +82,19 @@ export default function ChatModal() {
               )
             })}
           </div>
+          {missionHistory.length > 0 && (
+            <div className="border-t border-white/5 p-4 bg-white/[0.02]">
+              <h3 className="text-[11px] uppercase tracking-wider text-white/40 font-bold mb-2">Resultados recentes</h3>
+              <div className="space-y-2 max-h-28 overflow-y-auto">
+                {missionHistory.slice(0, 3).map((mission) => (
+                  <div key={mission.id} className="text-xs text-white/70 bg-white/5 rounded-lg px-2.5 py-2">
+                    <div className="text-white/40 text-[10px] mb-1">{mission.status.toUpperCase()} · {timeAgo(mission.createdAt)}</div>
+                    <div className="line-clamp-2">{mission.prompt}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>

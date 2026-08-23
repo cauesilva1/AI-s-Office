@@ -44,7 +44,7 @@ export default function SettingsModal() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-[#16241a] border border-white/5 rounded-2xl w-full max-w-md overflow-hidden"
+          className="bg-[#101a29] border border-cyan-400/15 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
           <div className="p-5 border-b border-white/5 flex items-center justify-between">
@@ -75,7 +75,7 @@ export default function SettingsModal() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg pl-10 pr-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-cyan-500/8 border border-cyan-400/15 rounded-lg pl-10 pr-3 py-2.5 text-cyan-50 text-sm placeholder:text-cyan-100/25 focus:outline-none focus:border-cyan-300/45"
                 />
               </div>
               <p className="text-white/30 text-xs mt-1.5">
@@ -83,8 +83,8 @@ export default function SettingsModal() {
               </p>
             </div>
 
-            <div className="mb-4 bg-white/5 rounded-lg p-3">
-              <p className="text-white/50 text-xs leading-relaxed">
+            <div className="mb-4 bg-cyan-500/8 border border-cyan-400/10 rounded-lg p-3">
+              <p className="text-cyan-100/55 text-xs leading-relaxed">
                 Cada agente na mesa usa um modelo gratuito diferente da Hugging Face. 
                 Para trocar o modelo de um agente, clique nele e escolha no painel.
               </p>
@@ -93,7 +93,7 @@ export default function SettingsModal() {
             <div className="flex gap-2">
               <button
                 onClick={handleSave}
-                className="flex-1 bg-[#e9b65f] hover:bg-[#d4a34e] text-[#1c1712] font-display font-bold text-sm rounded-full py-2.5 transition-all active:scale-95"
+                className="flex-1 bg-violet-500 hover:bg-violet-400 text-white font-display font-bold text-sm rounded-full py-2.5 transition-all active:scale-95"
               >
                 Salvar configuração
               </button>
