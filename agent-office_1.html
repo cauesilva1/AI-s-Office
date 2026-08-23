@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Office</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --floor-1:#c3d2a4;
+    --floor-2:#aec18b;
+    --ink:#152018;
+    --panel:#16241a;
+    --panel-2:#1c2e21;
+    --amber:#e9b65f;
+    --paper:#eee6cf;
+    --text-soft:#dfe6d5;
+    --cream:#f2ecda;
+
+    --wall-top:#31543a;
+    --wall-right:#254331;
+    --wall-left:#173025;
+
+    --desk-top:#f7f1de;
+    --desk-right:#e2d7b2;
+    --desk-left:#c9bc90;
+
+    --mon-top:#efe8d4;
+    --mon-right:#d9cfab;
+    --mon-left:#bfb28a;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:'Inter',sans-serif;
+    background:
+      radial-gradient(90% 70% at 50% 12%, rgba(255,244,214,.5), rgba(255,244,214,0) 60%),
+      linear-gradient(180deg, #d6e2b9 0%, #b9cc94 55%, #9cb279 100%);
+    color:var(--ink);
+    overflow:hidden;
+  }
+
+  .app{ position:relative; width:100vw; height:100vh; overflow:hidden; }
+
+  /* ---------- SCENE ---------- */
+  .scene-wrap{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  .scene{ position:relative; width:1360px; height:800px; flex:0 0 auto; transform-origin:center center; }
+
+  .floor{
+    position:absolute; inset:0;
+    background: radial-gradient(65% 60% at 58% 42%, rgba(255,246,214,.4), rgba(255,246,214,0) 72%);
+  }
+  .floor__vignette{
+    position:absolute; inset:0;
+    background: radial-gradient(85% 75% at 50% 42%, rgba(0,0,0,0) 45%, rgba(8,18,10,.24) 100%);
+    pointer-events:none;
+  }
+  .floor__grid{
+    position:absolute; inset:0; opacity:.35;
+    background-image:
+      linear-gradient(30deg, rgba(255,255,255,.16) 1px, transparent 1px),
+      linear-gradient(150deg, rgba(255,255,255,.16) 1px, transparent 1px);
+    background-size: 84px 48px;
+    mask-image: radial-gradient(65% 60% at 50% 42%, black 30%, transparent 78%);
+  }
+
+  /* ---------- SIDEBAR ---------- */
+  .sidebar{
+    position:absolute; top:22px; left:22px; z-index:40;
+    display:flex; flex-direction:column; gap:10px;
+    font-family:'Baloo 2', sans-serif;
+  }
+  .pill{
+    display:flex; align-items:center; gap:8px;
+    background:var(--panel); color:var(--paper);
+    border:1px solid rgba(255,255,255,.06);
+    padding:10px 16px; border-radius:999px;
+    font-weight:700; font-size:13px; letter-spacing:.03em; text-transform:uppercase;
+    cursor:pointer; box-shadow:0 6px 16px rgba(0,0,0,.25);
+    transition: transform .15s ease, background .15s ease;
+    user-select:none; border:none;
+  }
+  .pill:hover{ transform:translateY(-1px); background:var(--panel-2); }
+  .pill:active{ transform:translateY(0); }
+  .pill--brand{ background: linear-gradient(180deg,#223a22,#182a19); color:var(--amber); }
+  .pill .dot-badge{
+    background:#e2536b; color:#fff; font-size:11px; font-weight:800;
+    width:18px;height:18px; border-radius:50%;
+    display:flex;align-items:center;justify-content:center; font-family:'Inter',sans-serif;
+  }
+  .pill .cafe-dot{ width:9px;height:9px;border-radius:50%; background:var(--amber); box-shadow:0 0 0 3px rgba(233,182,95,.25); }
+  .icon-btn{
+    width:38px;height:38px; border-radius:50%; background:var(--panel);
+    display:flex;align-items:center;justify-content:center; color:var(--paper);
+    cursor:pointer; box-shadow:0 6px 16px rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.06);
+    font-size:16px;
+  }
+  .top-right{ position:absolute; top:22px; right:22px; z-index:40; display:flex; gap:10px; }
+
+  /* ---------- ISO BOX GEOMETRY (shared) ----------
+     Each box is a bounding div; three children (.f-top, .f-right, .f-left)
+     use clip-path percentages derived from footprint half-width u and height h.
+  */
+  .iso-box{ position:relative; }
+  .iso-box .f-top, .iso-box .f-right, .iso-box .f-left{ position:absolute; inset:0; }
+
+  /* divider wall: u=70 h=132 -> total h=202, E=17.3%, S=34.7%, Eb=82.2% */
+  .wall{ width:150px; height:202px; }
+  .wall .f-top{ background:var(--wall-top); clip-path:polygon(50% 0%,100% 17.3%,50% 34.7%,0% 17.3%); }
+  .wall .f-right{ background:var(--wall-right); clip-path:polygon(50% 34.7%,100% 17.3%,100% 82.2%,50% 100%); }
+  .wall .f-left{ background:var(--wall-left); clip-path:polygon(0% 17.3%,50% 34.7%,50% 100%,0% 82.2%); }
+
+  /* desk: u=100 h=24 -> total h=124, E=40.3%, S=80.6%, Eb=59.7% */
+  .desk{ width:200px; height:124px; }
+  .desk .f-top{ background:var(--desk-top); clip-path:polygon(50% 0%,100% 40.3%,50% 80.6%,0% 40.3%); box-shadow:0 12px 16px rgba(20,30,15,.2); }
+  .desk .f-right{ background:var(--desk-right); clip-path:polygon(50% 80.6%,100% 40.3%,100% 59.7%,50% 100%); }
+  .desk .f-left{ background:var(--desk-left); clip-path:polygon(0% 40.3%,50% 80.6%,50% 100%,0% 59.7%); }
+
+  /* monitor: u=30 h=32 -> total h=62, E=24.2%, S=48.4%, Eb=75.8% */
+  .monitor-box{ width:60px; height:62px; }
+  .monitor-box .f-top{ background:var(--mon-top); clip-path:polygon(50% 0%,100% 24.2%,50% 48.4%,0% 24.2%); }
+  .monitor-box .f-right{ clip-path:polygon(50% 48.4%,100% 24.2%,100% 75.8%,50% 100%); }
+  .monitor-box .f-left{ background:var(--mon-left); clip-path:polygon(0% 24.2%,50% 48.4%,50% 100%,0% 75.8%); }
+  .monitor-box .f-right.is-glow{ animation: screenPulse 2.6s ease-in-out infinite; }
+
+  /* ---------- DESK UNIT LAYOUT ---------- */
+  .desk-unit{ position:absolute; width:280px; height:290px; }
+  .desk-unit__inner{ position:relative; width:100%; height:100%; }
+
+  .shadow-blob{
+    position:absolute; left:40px; bottom:36px; width:190px; height:44px;
+    background:radial-gradient(50% 50% at 50% 50%, rgba(10,20,10,.26), rgba(0,0,0,0) 72%);
+    filter:blur(1px);
+  }
+  .desk-unit .wall{ position:absolute; left:60px; top:0px; }
+  .desk-unit .desk{ position:absolute; left:30px; top:150px; }
+  .desk-unit .monitor-box{ position:absolute; left:100px; top:118px; }
+
+  .empty-slot{
+    position:absolute; left:56px; top:118px; width:170px; height:120px;
+    border-radius:16px; border:2px dashed rgba(255,255,255,.6);
+    display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px;
+    cursor:pointer; background:rgba(255,255,255,.10);
+    transition: background .15s ease, transform .15s ease;
+    text-align:center; padding:8px;
+  }
+  .empty-slot:hover{ background:rgba(255,255,255,.2); transform:translateY(-2px); }
+  .empty-slot__plus{
+    font-family:'Baloo 2',sans-serif; font-size:20px; font-weight:800; color:var(--panel);
+    width:32px;height:32px;border-radius:50%; background:rgba(255,255,255,.9);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .empty-slot__label{ font-family:'Baloo 2',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--panel); }
+
+  .chair{ position:absolute; left:176px; top:196px; width:52px; height:64px; }
+  .chair__seat{ position:absolute; left:0; top:20px; width:52px; height:16px; background:#22392a; clip-path: polygon(12% 0,88% 0,100% 62%,50% 100%,0 62%); }
+  .chair__back{ position:absolute; left:10px; top:-8px; width:32px; height:30px; background:#2b4433; border-radius:7px 7px 3px 3px; }
+  .chair__leg{ position:absolute; width:3px; height:16px; background:#12201a; }
+  .chair__leg.l1{ left:8px; top:36px; transform:rotate(6deg); }
+  .chair__leg.l2{ left:40px; top:36px; transform:rotate(-6deg); }
+
+  .agent{
+    position:absolute; left:130px; top:100px;
+    display:flex; flex-direction:column; align-items:center;
+    cursor:pointer; animation: idleBob 3.6s ease-in-out infinite;
+  }
+  .agent__body{
+    width:50px; height:44px; border-radius:16px 16px 11px 11px;
+    background: linear-gradient(165deg, var(--cream), #e4dab8);
+    box-shadow: inset 0 -8px 10px rgba(0,0,0,.08), 0 8px 10px rgba(10,20,10,.18);
+    position:relative;
+  }
+  .agent__body::before{ content:""; position:absolute; left:7px; top:5px; width:36px; height:9px; background:rgba(255,255,255,.55); border-radius:8px; }
+  .agent__head{
+    width:36px; height:36px; border-radius:50%;
+    background: radial-gradient(circle at 34% 30%, #2a231b, #14100b 78%);
+    margin-bottom:-8px; position:relative; z-index:2;
+    box-shadow: 0 4px 7px rgba(0,0,0,.28);
+  }
+  .badge{
+    position:absolute; left:50%; top:-32px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:6px;
+    background:var(--panel); color:var(--paper);
+    font-family:'Baloo 2',sans-serif; font-size:11.5px; font-weight:700;
+    padding:5px 10px 5px 7px; border-radius:999px; white-space:nowrap;
+    box-shadow:0 6px 14px rgba(0,0,0,.3); z-index:5;
+  }
+  .badge__dot{ width:8px;height:8px;border-radius:50%; box-shadow:0 0 0 3px rgba(255,255,255,.08); flex:0 0 auto; }
+  .agent.is-thinking .badge__dot{ animation: dotBlink 1s infinite ease-in-out; }
+
+  .lamp{ position:absolute; width:6px; height:170px; background:linear-gradient(#132018,#0c1610); }
+  .lamp::after{
+    content:""; position:absolute; left:-27px; bottom:-2px; width:60px; height:30px; background:#182a1b;
+    clip-path: polygon(0 0, 100% 0, 84% 100%, 16% 100%);
+  }
+  .lamp__glow{
+    position:absolute; left:-70px; bottom:-140px; width:200px; height:200px;
+    background: radial-gradient(closest-side, rgba(255,222,150,.5), rgba(255,222,150,0));
+    animation: lampPulse 4s ease-in-out infinite; pointer-events:none;
+  }
+
+  /* ---------- COFFEE TABLE ---------- */
+  .cafe{ position:absolute; left:30px; bottom:44px; width:280px; height:200px; }
+  .cafe__table{
+    position:absolute; left:74px; top:64px; width:140px; height:88px; border-radius:50%;
+    background: radial-gradient(60% 60% at 38% 32%, #f9f3e0, #ded2a9 82%);
+    box-shadow:0 16px 20px rgba(20,30,15,.28);
+  }
+  .cafe__leg{ position:absolute; left:142px; top:114px; width:6px; height:44px; background:#243a29; }
+  .cafe__item{ position:absolute; left:120px; top:82px; width:32px; height:18px; background:#e8c78c; border-radius:4px; box-shadow:0 3px 6px rgba(0,0,0,.2); }
+  .cafe__chair{ position:absolute; width:52px; height:66px; }
+  .cafe__chair.c1{ left:0px; top:18px; }
+  .cafe__chair.c2{ left:192px; top:60px; }
+  .cafe__chair .chair__seat{ width:52px; }
+  .cafe__chair .chair__back{ left:10px; }
+
+  /* ---------- SIDE PANEL ---------- */
+  .side-panel{
+    position:absolute; top:0; right:0; z-index:60; width:360px; height:100%;
+    background:var(--panel); color:var(--text-soft);
+    box-shadow:-18px 0 40px rgba(0,0,0,.35);
+    transform:translateX(100%); transition:transform .32s cubic-bezier(.2,.8,.2,1);
+    display:flex; flex-direction:column;
+  }
+  .side-panel.is-open{ transform:translateX(0); }
+  .side-panel__head{ padding:22px 22px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; align-items:flex-start; gap:14px; }
+  .side-panel__avatar{
+    width:52px;height:52px;border-radius:50%; background:#0f1a12;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Baloo 2',sans-serif; font-weight:800; font-size:18px;
+    flex:0 0 auto; border:2px solid var(--amber);
+  }
+  .side-panel__name{ font-family:'Baloo 2',sans-serif; font-weight:800; font-size:18px; color:#fff; }
+  .side-panel__role{ font-size:12.5px; opacity:.7; margin-top:2px; }
+  .side-panel__close{ margin-left:auto; cursor:pointer; opacity:.6; font-size:20px; line-height:1; background:none;border:none;color:inherit; }
+  .side-panel__close:hover{ opacity:1; }
+  .side-panel__body{ padding:18px 22px; overflow-y:auto; flex:1; }
+  .status-row{ display:flex; align-items:center; gap:8px; font-size:12.5px; margin-bottom:16px; }
+  .status-row .dot{ width:8px;height:8px;border-radius:50%; }
+  .section-label{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; opacity:.55; margin:0 0 8px; }
+  .task-line{ font-size:13.5px; line-height:1.5; padding:12px 14px; background:rgba(255,255,255,.05); border-radius:10px; margin-bottom:14px; border-left:3px solid var(--amber); }
+  .log{ display:flex; flex-direction:column; gap:10px; }
+  .log-item{ font-size:12.5px; line-height:1.5; padding-left:16px; position:relative; opacity:.85; }
+  .log-item::before{ content:""; position:absolute; left:0; top:6px; width:6px;height:6px;border-radius:50%; background:rgba(255,255,255,.35); }
+
+  .task-form{ margin-bottom:18px; }
+  .task-form textarea{
+    width:100%; min-height:64px; resize:vertical;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:10px;
+    color:#fff; font-family:'Inter',sans-serif; font-size:13px; padding:10px 12px;
+  }
+  .task-form textarea:focus{ outline:2px solid var(--amber); outline-offset:1px; }
+  .task-form__row{ display:flex; gap:8px; margin-top:8px; }
+  .btn-primary{
+    flex:1; background:var(--amber); color:#1c1712; border:none; border-radius:999px;
+    font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; padding:9px 14px; cursor:pointer;
+    transition:filter .15s ease, transform .15s ease;
+  }
+  .btn-primary:hover{ filter:brightness(1.08); }
+  .btn-primary:active{ transform:scale(.98); }
+  .btn-primary:disabled{ opacity:.5; cursor:not-allowed; filter:none; transform:none; }
+  .btn-secondary{
+    background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.14);
+    border-radius:999px; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12.5px;
+    padding:8px 14px; cursor:pointer;
+  }
+  .btn-secondary:hover{ background:rgba(255,255,255,.14); }
+  .result-box{ font-size:13.5px; line-height:1.55; background:rgba(255,255,255,.05); border-radius:10px; padding:12px 14px; margin-bottom:16px; white-space:pre-wrap; }
+  .thinking-dots{ display:inline-flex; gap:3px; vertical-align:middle; }
+  .thinking-dots span{ width:5px;height:5px;border-radius:50%; background:currentColor; animation: dotBlink 1.1s infinite ease-in-out; }
+  .thinking-dots span:nth-child(2){ animation-delay:.15s; }
+  .thinking-dots span:nth-child(3){ animation-delay:.3s; }
+  .error-text{ color:#f0a3a3; font-size:12.5px; margin-top:8px; }
+  .provider-tag{ font-size:11px; opacity:.5; margin-top:10px; }
+
+  /* ---------- MODALS ---------- */
+  .modal-backdrop{
+    position:absolute; inset:0; z-index:70; background:rgba(10,16,10,.5);
+    display:none; align-items:center; justify-content:center; backdrop-filter: blur(2px);
+  }
+  .modal-backdrop.is-open{ display:flex; }
+  .modal{
+    width:460px; max-width:92vw; max-height:82vh; background:var(--panel); color:var(--text-soft);
+    border-radius:18px; box-shadow:0 30px 60px rgba(0,0,0,.4); overflow:hidden; display:flex; flex-direction:column;
+  }
+  .modal__head{ padding:18px 20px; display:flex; align-items:center; border-bottom:1px solid rgba(255,255,255,.08); font-family:'Baloo 2',sans-serif; font-weight:700; color:#fff; }
+  .modal__head button{ margin-left:auto; background:none;border:none;color:inherit;opacity:.6;font-size:20px;cursor:pointer; }
+  .modal__body{ padding:14px 20px 20px; overflow-y:auto; }
+  .roster-item{ display:flex; align-items:center; gap:12px; padding:12px; border-radius:12px; cursor:pointer; transition:background .15s ease; }
+  .roster-item:hover{ background:rgba(255,255,255,.06); }
+  .roster-item__dot{ width:34px;height:34px;border-radius:50%; flex:0 0 auto; }
+  .roster-item__name{ font-weight:700; font-size:14px; color:#fff; }
+  .roster-item__role{ font-size:12px; opacity:.65; }
+
+  .chat-messages{ display:flex; flex-direction:column; gap:14px; padding:6px 0 4px; }
+  .chat-msg{ display:flex; gap:10px; }
+  .chat-msg__avatar{ width:30px;height:30px;border-radius:50%; flex:0 0 auto; display:flex;align-items:center;justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800; font-size:11px; color:#0c140d; }
+  .chat-msg__bubble{ background:rgba(255,255,255,.06); padding:8px 12px; border-radius:10px; font-size:13px; line-height:1.45; }
+  .chat-msg__name{ font-size:11px; opacity:.6; margin-bottom:3px; font-weight:600; }
+
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; opacity:.6; margin-bottom:6px; }
+  .field input{
+    width:100%; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14);
+    border-radius:8px; color:#fff; padding:9px 11px; font-size:13px; font-family:'Inter',sans-serif;
+  }
+  .field input:focus{ outline:2px solid var(--amber); outline-offset:1px; }
+  .field__hint{ font-size:11.5px; opacity:.55; margin-top:6px; line-height:1.5; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip{
+    font-size:11.5px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+    padding:5px 10px; border-radius:999px; cursor:pointer; color:var(--text-soft);
+  }
+  .chip:hover{ background:rgba(255,255,255,.15); }
+  .settings-status{ font-size:12px; padding:10px 12px; border-radius:8px; margin-bottom:14px; }
+  .settings-status.ok{ background:rgba(120,200,140,.14); color:#a7e6b7; }
+  .settings-status.off{ background:rgba(255,255,255,.06); color:var(--text-soft); }
+
+  .toast{
+    position:absolute; left:50%; bottom:26px; transform:translate(-50%,20px);
+    background:var(--panel); color:#fff; padding:10px 18px; border-radius:999px;
+    font-size:13px; font-weight:600; opacity:0; pointer-events:none;
+    transition: opacity .25s ease, transform .25s ease; z-index:80; box-shadow:0 10px 24px rgba(0,0,0,.3);
+  }
+  .toast.is-visible{ opacity:1; transform:translate(-50%,0); }
+
+  @keyframes idleBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-3px); } }
+  @keyframes screenPulse{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(1.35); } }
+  @keyframes lampPulse{ 0%,100%{ opacity:.7; } 50%{ opacity:1; } }
+  @keyframes dotBlink{ 0%,80%,100%{ opacity:.25; } 40%{ opacity:1; } }
+  @media (prefers-reduced-motion: reduce){
+    .agent, .monitor-box .f-right.is-glow, .lamp__glow{ animation:none !important; }
+  }
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.15); border-radius:8px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="scene-wrap">
+    <div class="scene" id="scene">
+      <div class="floor"></div>
+      <div class="floor__grid"></div>
+      <div class="floor__vignette"></div>
+
+      <div class="cafe">
+        <div class="cafe__chair c1">
+          <div class="chair__seat"></div><div class="chair__back"></div>
+          <div class="chair__leg l1" style="left:9px;top:36px;"></div>
+          <div class="chair__leg l2" style="left:41px;top:36px;"></div>
+        </div>
+        <div class="cafe__chair c2">
+          <div class="chair__seat"></div><div class="chair__back"></div>
+          <div class="chair__leg l1" style="left:9px;top:36px;"></div>
+          <div class="chair__leg l2" style="left:41px;top:36px;"></div>
+        </div>
+        <div class="cafe__table"></div>
+        <div class="cafe__leg"></div>
+        <div class="cafe__item"></div>
+      </div>
+
+      <div id="desks"></div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="pill pill--brand">★ AGENT OFFICE</div>
+    <div class="pill" id="btnChat">TEAM CHAT <span class="dot-badge" id="chatCount">3</span></div>
+    <div class="pill" id="btnCafe"><span class="cafe-dot"></span> MESA DE CAFÉ</div>
+    <div class="pill" id="btnRecovery" style="opacity:.85;">RECOVERY</div>
+  </div>
+  <div class="top-right">
+    <div class="icon-btn" id="btnSettings" title="Configurar API">⚙</div>
+    <div class="icon-btn" id="btnInfo" title="Ajuda">ⓘ</div>
+  </div>
+
+  <!-- SIDE PANEL -->
+  <div class="side-panel" id="sidePanel">
+    <div class="side-panel__head">
+      <div class="side-panel__avatar" id="spAvatar">K</div>
+      <div>
+        <div class="side-panel__name" id="spName">Kimi K3</div>
+        <div class="side-panel__role" id="spRole">Setor de Engenharia</div>
+      </div>
+      <button class="side-panel__close" id="spClose">×</button>
+    </div>
+    <div class="side-panel__body">
+      <div class="status-row" id="spStatus"><span class="dot" style="background:#5fd98a;"></span> Online — trabalhando</div>
+
+      <p class="section-label">Dar uma tarefa</p>
+      <div class="task-form">
+        <textarea id="spInput" placeholder="Ex: escreva um plano de testes para um endpoint de login"></textarea>
+        <div class="task-form__row"><button class="btn-primary" id="spSend">Enviar tarefa</button></div>
+        <div class="error-text" id="spError" style="display:none;"></div>
+        <div class="provider-tag" id="spProviderTag">Motor: Claude (padrão do Agent Office)</div>
+      </div>
+
+      <p class="section-label">Tarefa atual</p>
+      <div class="task-line" id="spTask">Refatorando o módulo de autenticação e escrevendo testes de integração.</div>
+
+      <p class="section-label" id="spResultLabel" style="display:none;">Resultado</p>
+      <div class="result-box" id="spResult" style="display:none;"></div>
+
+      <p class="section-label">Atividade recente</p>
+      <div class="log" id="spLog"></div>
+    </div>
+  </div>
+
+  <!-- HIRE MODAL -->
+  <div class="modal-backdrop" id="hireBackdrop">
+    <div class="modal">
+      <div class="modal__head">Contratar agente <button id="hireClose">×</button></div>
+      <div class="modal__body" id="hireList"></div>
+    </div>
+  </div>
+
+  <!-- CHAT MODAL -->
+  <div class="modal-backdrop" id="chatBackdrop">
+    <div class="modal">
+      <div class="modal__head">Team Chat <button id="chatClose">×</button></div>
+      <div class="modal__body"><div class="chat-messages" id="chatMessages"></div></div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MODAL -->
+  <div class="modal-backdrop" id="settingsBackdrop">
+    <div class="modal">
+      <div class="modal__head">Conectar API <button id="settingsClose">×</button></div>
+      <div class="modal__body">
+        <div class="settings-status off" id="settingsStatus">
+          Sem token da Hugging Face configurado — os agentes estão usando o Claude embutido do Agent Office.
+        </div>
+        <div class="field">
+          <label>Token da Hugging Face (hf_...)</label>
+          <input type="password" id="hfToken" placeholder="hf_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          <div class="field__hint">
+            Crie um token gratuito em huggingface.co → Settings → Access Tokens (permissão "Make calls to Inference Providers").
+            Ele fica só na memória desta aba — não é salvo em lugar nenhum e some se você recarregar a página.
+          </div>
+        </div>
+        <div class="field">
+          <label>Modelo (id no Hugging Face)</label>
+          <input type="text" id="hfModel" placeholder="meta-llama/Llama-3.2-3B-Instruct">
+          <div class="chips">
+            <span class="chip" data-model="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B</span>
+            <span class="chip" data-model="Qwen/Qwen2.5-7B-Instruct">Qwen2.5 7B</span>
+            <span class="chip" data-model="mistralai/Mistral-7B-Instruct-v0.3">Mistral 7B</span>
+            <span class="chip" data-model="deepseek-ai/DeepSeek-R1:fastest">DeepSeek R1 (fastest)</span>
+          </div>
+          <div class="field__hint">Alguns modelos/provedores exigem conta PRO ou têm limite de uso gratuito na Hugging Face — se um der erro, troque de modelo.</div>
+        </div>
+        <div class="task-form__row">
+          <button class="btn-primary" id="hfSave">Salvar e usar Hugging Face</button>
+          <button class="btn-secondary" id="hfClear">Voltar pro Claude</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ---------- ISO DESK MARKUP HELPER ---------- */
+function isoBoxHTML(cls){
+  return `<div class="iso-box ${cls}"><div class="f-top"></div><div class="f-right"></div><div class="f-left"></div></div>`;
+}
+
+const DESK_POSITIONS = [
+  {x: 560, y: 150},
+  {x: 980, y: 90},
+  {x: 900, y: 400},
+  {x: 300, y: 400},
+  {x: 1150, y: 320},
+  {x: 720, y: 20},
+];
+
+const AGENTS_ON_DESK = [
+  { id:'kimi',  name:'Kimi K3',      role:'Engenharia · Long-horizon coding', color:'#2dd4bf', task:'Refatorando o módulo de autenticação e escrevendo testes de integração.',
+    log:['Abriu 14 arquivos no repositório principal','Rodou a suíte de testes: 212 passaram','Comentou no PR #482'] },
+  { id:'fable', name:'Claude Fable', role:'Pesquisa · Deep work & relatórios', color:'#d97757', task:'Compilando um relatório de pesquisa com visualizações interativas sobre o mercado.',
+    log:['Analisou 9 fontes primárias','Gerou um dashboard com 4 gráficos','Revisou a seção de metodologia'] },
+  { id:'sol',   name:'GPT Sol',      role:'Design · Mockups & prototipagem', color:'#34d399', task:'Gerando variações de mockup para a nova landing page do produto.',
+    log:['Criou 3 variações de paleta','Exportou componentes para Figma','Ajustou o grid responsivo'] },
+];
+
+const ROSTER = [
+  { id:'opus',  name:'Claude Opus',  role:'Arquitetura de sistemas', color:'#e9b65f' },
+  { id:'gem',   name:'Gemini 3',     role:'Dados & analytics',        color:'#5b9bf0' },
+  { id:'deep',  name:'DeepSeek',     role:'Automação de tarefas',     color:'#b285f0' },
+  { id:'grok',  name:'Grok',         role:'Social & growth',          color:'#f06868' },
+  { id:'mist',  name:'Mistral',      role:'DevOps & infraestrutura',  color:'#63c7e8' },
+  { id:'llama', name:'Llama',        role:'QA & testes',              color:'#a6d15a' },
+];
+
+let desks = DESK_POSITIONS.map((pos, i) => ({
+  id: 'desk-' + i, x: pos.x, y: pos.y,
+  agent: AGENTS_ON_DESK[i] || null,
+  hasLamp: i === 0,
+}));
+let hired = [...AGENTS_ON_DESK];
+
+/* HF config lives only in memory for this tab */
+const hfConfig = { token: '', model: '' };
+
+const desksEl = document.getElementById('desks');
+function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+
+function renderDesks(){
+  desksEl.innerHTML = '';
+  desks.forEach(desk => {
+    const wrap = document.createElement('div');
+    wrap.className = 'desk-unit';
+    wrap.style.left = desk.x + 'px';
+    wrap.style.top = desk.y + 'px';
+
+    let inner = `<div class="desk-unit__inner">
+      <div class="shadow-blob"></div>
+      ${desk.hasLamp ? `<div class="lamp" style="left:96px; top:-150px;"><div class="lamp__glow"></div></div>` : ''}
+      ${isoBoxHTML('wall')}
+      ${isoBoxHTML('desk')}
+      <div class="chair"><div class="chair__seat"></div><div class="chair__back"></div><div class="chair__leg l1"></div><div class="chair__leg l2"></div></div>
+    `;
+
+    if (desk.agent){
+      const a = desk.agent;
+      inner += `
+        <div class="iso-box monitor-box" style="position:absolute; left:100px; top:118px;">
+          <div class="f-top"></div>
+          <div class="f-right is-glow" style="background:${a.color};"></div>
+          <div class="f-left"></div>
+        </div>
+        <div class="agent" data-desk="${desk.id}">
+          <div class="badge"><span class="badge__dot" style="background:${a.color};"></span>${a.name}</div>
+          <div class="agent__head"></div>
+          <div class="agent__body"></div>
+        </div>
+      `;
+    } else {
+      inner += `
+        <div class="empty-slot" data-desk="${desk.id}">
+          <div class="empty-slot__plus">+</div>
+          <div class="empty-slot__label">Contratar agente</div>
+        </div>
+      `;
+    }
+    inner += `</div>`;
+    wrap.innerHTML = inner;
+    desksEl.appendChild(wrap);
+  });
+
+  desksEl.querySelectorAll('.agent').forEach(el=> el.addEventListener('click', () => openAgentPanel(el.dataset.desk)));
+  desksEl.querySelectorAll('.empty-slot').forEach(el=> el.addEventListener('click', () => openHireModal(el.dataset.desk)));
+}
+
+/* ---------- SIDE PANEL ---------- */
+const sidePanel = document.getElementById('sidePanel');
+let currentDeskId = null;
+
+function personaSystemPrompt(a){
+  return `Você é ${a.name}, um agente de IA que trabalha no setor "${a.role}" dentro de um escritório fictício de agentes de IA (Agent Office).
+Responda sempre em português do Brasil, em tom profissional mas direto, como um colega de trabalho competente.
+Quando receber uma tarefa, execute-a de fato (escreva o código, o texto, o plano, a análise etc. que foi pedido) em vez de apenas descrever o que faria.
+Mantenha a resposta focada e razoavelmente concisa, adequada para caber num painel lateral de interface.`;
+}
+
+function renderLog(a){
+  document.getElementById('spLog').innerHTML = (a.log||[]).map(l=>`<div class="log-item">${l}</div>`).join('');
+}
+
+function updateProviderTag(){
+  document.getElementById('spProviderTag').textContent = hfConfig.token
+    ? `Motor: Hugging Face — ${hfConfig.model || '(defina um modelo nas configurações)'}`
+    : 'Motor: Claude (padrão do Agent Office)';
+}
+
+function openAgentPanel(deskId){
+  const desk = desks.find(d=>d.id===deskId);
+  if (!desk || !desk.agent) return;
+  currentDeskId = deskId;
+  const a = desk.agent;
+  document.getElementById('spAvatar').textContent = initials(a.name);
+  document.getElementById('spAvatar').style.borderColor = a.color;
+  document.getElementById('spName').textContent = a.name;
+  document.getElementById('spRole').textContent = a.role;
+  document.getElementById('spTask').textContent = a.task;
+  document.getElementById('spInput').value = '';
+  document.getElementById('spError').style.display = 'none';
+  document.getElementById('spResult').style.display = 'none';
+  document.getElementById('spResultLabel').style.display = 'none';
+  updateProviderTag();
+  setThinking(deskId, false);
+  renderLog(a);
+  sidePanel.classList.add('is-open');
+}
+document.getElementById('spClose').addEventListener('click', ()=> sidePanel.classList.remove('is-open'));
+
+function setThinking(deskId, isThinking){
+  const desk = desks.find(d=>d.id===deskId);
+  if (!desk) return;
+  desk.thinking = isThinking;
+  const agentEl = desksEl.querySelector(`.agent[data-desk="${deskId}"]`);
+  if (agentEl) agentEl.classList.toggle('is-thinking', isThinking);
+  if (currentDeskId === deskId){
+    const statusEl = document.getElementById('spStatus');
+    document.getElementById('spSend').disabled = isThinking;
+    statusEl.innerHTML = isThinking
+      ? `<span class="dot" style="background:#e9b65f;"></span> Trabalhando na tarefa<span class="thinking-dots"><span></span><span></span><span></span></span>`
+      : `<span class="dot" style="background:#5fd98a;"></span> Online — trabalhando`;
+  }
+}
+
+async function callClaude(a, prompt){
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      system: personaSystemPrompt(a),
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if (!response.ok) throw new Error('Falha na requisição Claude (' + response.status + ')');
+  const data = await response.json();
+  const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+  return textBlocks.join('\n').trim() || '(sem resposta de texto)';
+}
+
+async function callHuggingFace(a, prompt){
+  if (!hfConfig.token) throw new Error('Configure um token da Hugging Face nas configurações (ícone de engrenagem).');
+  if (!hfConfig.model) throw new Error('Defina um modelo da Hugging Face nas configurações.');
+  const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + hfConfig.token
+    },
+    body: JSON.stringify({
+      model: hfConfig.model,
+      messages: [
+        { role: "system", content: personaSystemPrompt(a) },
+        { role: "user", content: prompt }
+      ]
+    })
+  });
+  if (!response.ok){
+    const errBody = await response.text().catch(()=> '');
+    throw new Error('Falha na requisição Hugging Face (' + response.status + '). ' + errBody.slice(0,140));
+  }
+  const data = await response.json();
+  const msg = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  return (msg || '(sem resposta de texto)').trim();
+}
+
+async function sendTaskToAgent(deskId, prompt){
+  const desk = desks.find(d=>d.id===deskId);
+  if (!desk || !desk.agent || !prompt.trim()) return;
+  const a = desk.agent;
+  const errorEl = document.getElementById('spError');
+  errorEl.style.display = 'none';
+  setThinking(deskId, true);
+
+  try{
+    const resultText = hfConfig.token ? await callHuggingFace(a, prompt) : await callClaude(a, prompt);
+
+    a.task = prompt;
+    a.log = [`Recebeu a tarefa: "${prompt.slice(0,60)}${prompt.length>60?'…':''}"`, 'Concluiu a tarefa', ...(a.log||[])].slice(0,6);
+
+    if (currentDeskId === deskId){
+      document.getElementById('spTask').textContent = prompt;
+      document.getElementById('spResult').textContent = resultText;
+      document.getElementById('spResult').style.display = 'block';
+      document.getElementById('spResultLabel').style.display = 'block';
+      renderLog(a);
+    }
+  } catch(err){
+    if (currentDeskId === deskId){
+      errorEl.textContent = 'Não foi possível concluir a tarefa agora. ' + err.message;
+      errorEl.style.display = 'block';
+    }
+  } finally {
+    setThinking(deskId, false);
+  }
+}
+document.getElementById('spSend').addEventListener('click', () => {
+  if (!currentDeskId) return;
+  const prompt = document.getElementById('spInput').value;
+  if (!prompt.trim()) return;
+  sendTaskToAgent(currentDeskId, prompt);
+});
+
+/* ---------- SETTINGS MODAL ---------- */
+const settingsBackdrop = document.getElementById('settingsBackdrop');
+function refreshSettingsStatus(){
+  const el = document.getElementById('settingsStatus');
+  if (hfConfig.token){
+    el.className = 'settings-status ok';
+    el.textContent = `Usando Hugging Face — modelo: ${hfConfig.model || '(nenhum definido)'}`;
+  } else {
+    el.className = 'settings-status off';
+    el.textContent = 'Sem token da Hugging Face configurado — os agentes estão usando o Claude embutido do Agent Office.';
+  }
+}
+document.getElementById('btnSettings').addEventListener('click', () => {
+  document.getElementById('hfToken').value = hfConfig.token;
+  document.getElementById('hfModel').value = hfConfig.model;
+  refreshSettingsStatus();
+  settingsBackdrop.classList.add('is-open');
+});
+document.getElementById('settingsClose').addEventListener('click', ()=> settingsBackdrop.classList.remove('is-open'));
+settingsBackdrop.addEventListener('click', e=>{ if(e.target===settingsBackdrop) settingsBackdrop.classList.remove('is-open'); });
+document.querySelectorAll('.chip').forEach(chip=>{
+  chip.addEventListener('click', ()=> { document.getElementById('hfModel').value = chip.dataset.model; });
+});
+document.getElementById('hfSave').addEventListener('click', () => {
+  hfConfig.token = document.getElementById('hfToken').value.trim();
+  hfConfig.model = document.getElementById('hfModel').value.trim();
+  refreshSettingsStatus();
+  updateProviderTag();
+  showToast(hfConfig.token ? 'Conectado à Hugging Face ✅' : 'Token removido — voltando pro Claude.');
+  settingsBackdrop.classList.remove('is-open');
+});
+document.getElementById('hfClear').addEventListener('click', () => {
+  hfConfig.token = ''; hfConfig.model = '';
+  document.getElementById('hfToken').value = '';
+  document.getElementById('hfModel').value = '';
+  refreshSettingsStatus();
+  updateProviderTag();
+  showToast('Voltando a usar o Claude embutido.');
+});
+
+/* ---------- HIRE MODAL ---------- */
+const hireBackdrop = document.getElementById('hireBackdrop');
+const hireList = document.getElementById('hireList');
+let hireTargetDesk = null;
+
+function openHireModal(deskId){
+  hireTargetDesk = deskId;
+  const available = ROSTER.filter(r => !hired.find(h=>h.id===r.id));
+  hireList.innerHTML = available.length
+    ? available.map(a => `
+        <div class="roster-item" data-id="${a.id}">
+          <div class="roster-item__dot" style="background:${a.color};"></div>
+          <div><div class="roster-item__name">${a.name}</div><div class="roster-item__role">${a.role}</div></div>
+        </div>`).join('')
+    : `<p style="padding:20px; opacity:.7; font-size:13px;">Todos os agentes disponíveis já foram contratados.</p>`;
+
+  hireList.querySelectorAll('.roster-item').forEach(el=> el.addEventListener('click', () => hireAgent(el.dataset.id)));
+  hireBackdrop.classList.add('is-open');
+}
+document.getElementById('hireClose').addEventListener('click', ()=> hireBackdrop.classList.remove('is-open'));
+hireBackdrop.addEventListener('click', e=>{ if(e.target===hireBackdrop) hireBackdrop.classList.remove('is-open'); });
+
+function hireAgent(agentId){
+  const base = ROSTER.find(r=>r.id===agentId);
+  const desk = desks.find(d=>d.id===hireTargetDesk);
+  if (!base || !desk) return;
+  const newAgent = { ...base,
+    task: `Recém-contratado — se preparando para assumir tarefas de ${base.role.toLowerCase()}.`,
+    log: ['Entrou na equipe agora','Configurando ambiente de trabalho'] };
+  desk.agent = newAgent;
+  hired.push(newAgent);
+  hireBackdrop.classList.remove('is-open');
+  renderDesks();
+  updateChatCount();
+  showToast(`${newAgent.name} foi contratado! 🎉`);
+}
+
+/* ---------- CHAT ---------- */
+const chatBackdrop = document.getElementById('chatBackdrop');
+const chatMessages = document.getElementById('chatMessages');
+const SAMPLE_LINES = [
+  'terminei a primeira versão, alguém revisa?',
+  'subindo os resultados no canal agora',
+  'preciso de acesso ao repositório de dados',
+  'tudo verde nos testes ✅',
+  'vou pausar 5min e volto pra revisar isso',
+];
+function buildChat(){
+  chatMessages.innerHTML = hired.map(a => `
+    <div class="chat-msg">
+      <div class="chat-msg__avatar" style="background:${a.color};">${initials(a.name)}</div>
+      <div><div class="chat-msg__name">${a.name}</div><div class="chat-msg__bubble">${SAMPLE_LINES[Math.floor(Math.random()*SAMPLE_LINES.length)]}</div></div>
+    </div>`).join('');
+}
+document.getElementById('btnChat').addEventListener('click', ()=>{ buildChat(); chatBackdrop.classList.add('is-open'); });
+document.getElementById('chatClose').addEventListener('click', ()=> chatBackdrop.classList.remove('is-open'));
+chatBackdrop.addEventListener('click', e=>{ if(e.target===chatBackdrop) chatBackdrop.classList.remove('is-open'); });
+function updateChatCount(){ document.getElementById('chatCount').textContent = hired.length; }
+
+/* ---------- MISC BUTTONS ---------- */
+document.getElementById('btnCafe').addEventListener('click', ()=> showToast('☕ os agentes estão numa pausa rápida...'));
+document.getElementById('btnRecovery').addEventListener('click', ()=> showToast('Nenhum agente precisa de recovery no momento.'));
+document.getElementById('btnInfo').addEventListener('click', ()=> showToast('Clique num agente pra dar uma tarefa real, ou na engrenagem pra plugar sua própria API da Hugging Face.'));
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('is-visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.classList.remove('is-visible'), 2800);
+}
+
+/* ---------- RESPONSIVE SCALE ---------- */
+const scene = document.getElementById('scene');
+function fitScene(){
+  const wrap = scene.parentElement;
+  const scale = Math.min(wrap.clientWidth / 1360, wrap.clientHeight / 800) * 0.96;
+  scene.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', fitScene);
+window.addEventListener('load', fitScene);
+fitScene();
+
+renderDesks();
+updateChatCount();
+</script>
+</body>
+</html>
