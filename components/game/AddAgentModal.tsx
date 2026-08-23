@@ -4,15 +4,16 @@ import { useEffect, useState } from "react"
 import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Plus, Cpu } from "lucide-react"
-import { HF_MODELS, HF_IMAGE_MODELS, AGENT_COLORS } from "@/lib/game/constants"
+import { AGENT_COLORS, modelsForSector } from "@/lib/game/constants"
 
 export default function AddAgentModal() {
   const { showHire, sectors, desks, agents, toggleModal, addAgent, showToast } = useGameStore()
   const [name, setName] = useState("")
   const [role, setRole] = useState("")
-  const [model, setModel] = useState(HF_MODELS[0])
-  const [customModel, setCustomModel] = useState("")
   const [sectorId, setSectorId] = useState(sectors[0]?.id || "engineering")
+  const sectorModels = modelsForSector(sectorId)
+  const [model, setModel] = useState(sectorModels[0])
+  const [customModel, setCustomModel] = useState("")
 
   useEffect(() => {
     if (!showHire) return
@@ -89,8 +90,7 @@ export default function AddAgentModal() {
                   onChange={(e) => setModel(e.target.value)}
                     className="flex-1 bg-cyan-500/8 border border-cyan-400/15 rounded-lg px-3 py-2.5 text-cyan-50 text-sm focus:outline-none focus:border-cyan-300/45"
                 >
-                  {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                  {HF_IMAGE_MODELS.map(m => <option key={`img-${m}`} value={m}>[imagem] {m}</option>)}
+                  {sectorModels.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
               <input
@@ -139,7 +139,10 @@ export default function AddAgentModal() {
                   return (
                     <button
                       key={s.id}
-                      onClick={() => setSectorId(s.id)}
+                      onClick={() => {
+                        setSectorId(s.id)
+                        setModel(modelsForSector(s.id)[0])
+                      }}
                       disabled={free === 0}
                       className={`rounded-lg px-2 py-2 text-xs font-bold border transition-colors ${
                         sectorId === s.id 

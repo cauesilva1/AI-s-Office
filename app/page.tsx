@@ -4,7 +4,7 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import { useGameStore } from "@/store/gameStore"
-import { BASE_SECTORS, STARTING_AGENTS } from "@/lib/game/constants"
+import { BASE_SECTORS, SECTOR_MODELS } from "@/lib/game/constants"
 import { ArrowRight, Bot, GitBranch, MessageSquareText, Sparkles, Workflow } from "lucide-react"
 
 const STEPS = [
@@ -34,8 +34,8 @@ export default function HomePage() {
     if (useGameStore.getState().agents.length === 0) useGameStore.getState().initGame()
   }, [])
 
-  const sectorModel = (sectorId: string) =>
-    STARTING_AGENTS.find(a => a.sectorId === sectorId)?.model.split("/").pop() || ""
+  const sectorModels = (sectorId: string) =>
+    (SECTOR_MODELS[sectorId] || []).map(model => model.split("/").pop() || model)
 
   return (
     <div className="min-h-screen bg-[#0b1220] text-bright overflow-x-hidden">
@@ -106,9 +106,9 @@ export default function HomePage() {
           transition={{ duration: 0.6 }}
           className="mt-24"
         >
-          <h2 className="font-display font-bold text-2xl text-center mb-2">Seis setores, seis especialistas</h2>
+          <h2 className="font-display font-bold text-2xl text-center mb-2">Seis setores, três modelos em cada</h2>
           <p className="text-dim text-sm text-center mb-10 max-w-xl mx-auto">
-            Cada setor vem com um dos melhores modelos abertos disponíveis no router da Hugging Face
+            Cada setor já chega com pelo menos três modelos abertos da Hugging Face
             — e você pode trocar ou adicionar quantos quiser.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -121,9 +121,11 @@ export default function HomePage() {
                 <Bot className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: sector.color }} />
                 <div className="min-w-0">
                   <div className="font-display font-bold text-sm">{sector.name}</div>
-                  <div className="text-faint text-[11px] truncate" title={sectorModel(sector.id)}>
-                    {sectorModel(sector.id)}
-                  </div>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {sectorModels(sector.id).map(name => (
+                      <li key={name} className="text-faint text-[11px] truncate" title={name}>{name}</li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             ))}

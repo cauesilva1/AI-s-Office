@@ -4,13 +4,12 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { OfficeState, Agent, Desk, Sector, Message, FeedItem, Mission, MissionStep, LayoutMode } from "@/lib/game/types"
 import { BASE_SECTORS, SECTOR_LAYOUTS, STARTING_AGENTS } from "@/lib/game/constants"
+import { generateLogEntry } from "@/lib/game/engine"
 
 // Mapa de modelos antigos → novos (defaults atualizados em ago/2026)
 const MODEL_UPGRADES: Record<string, string> = {
   "Qwen/Qwen2.5-Coder-32B-Instruct": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  "meta-llama/Llama-3.3-70B-Instruct": "black-forest-labs/FLUX.1-dev",
   "Qwen/Qwen3-VL-235B-A22B-Instruct": "black-forest-labs/FLUX.1-dev",
-  "deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-V4-Flash",
   "Qwen/Qwen2.5-72B-Instruct": "openai/gpt-oss-120b",
   "mistralai/Mistral-7B-Instruct-v0.3": "zai-org/GLM-5.2",
   "microsoft/phi-4": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
@@ -18,7 +17,6 @@ const MODEL_UPGRADES: Record<string, string> = {
   "google/gemma-2-9b-it": "google/gemma-4-26B-A4B-it",
   "deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V4-Flash",
 }
-import { generateLogEntry } from "@/lib/game/engine"
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -82,6 +80,34 @@ function createInitialAgents(desks: Desk[]): Agent[] {
 
 function assignDeskReferences(sectors: Sector[], desks: Desk[]): Sector[] {
   return sectors.map((s) => ({ ...s, desks: desks.filter(d => d.sectorId === s.id).map(d => d.id) }))
+}
+
+function fillMissingStartingAgents(agents: Agent[], desks: Desk[]): { agents: Agent[]; desks: Desk[] } {
+  const nextAgents = [...agents]
+  const nextDesks = desks.map(d => ({ ...d }))
+  const existingIds = new Set(nextAgents.map(a => a.id))
+
+  STARTING_AGENTS.forEach(base => {
+    if (existingIds.has(base.id)) return
+    const desk = nextDesks.find(d => d.sectorId === base.sectorId && !d.agentId)
+    if (!desk) return
+    desk.agentId = base.id
+    existingIds.add(base.id)
+    nextAgents.push({
+      id: base.id,
+      name: base.name,
+      role: base.role,
+      sectorId: base.sectorId,
+      color: base.color,
+      model: base.model,
+      log: [generateLogEntry("Conectado ao escritório")],
+      chatHistory: [],
+      spriteState: "idle",
+      position: { x: desk.position.x, y: desk.position.y },
+    })
+  })
+
+  return { agents: nextAgents, desks: nextDesks }
 }
 
 function remapAgentPositions(agents: Agent[], desks: Desk[]): { agents: Agent[]; desks: Desk[] } {
@@ -335,7 +361,7 @@ export const useGameStore = create<OfficeStore>()(
     }),
     {
       name: "agent-office-save",
-      version: 6,
+      version: 7,
       migrate: (persisted: any, version) => {
         // Estruturas antigas (era um jogo) — recria o escritório do zero, preservando o token
         if (version < 4) {
@@ -357,6 +383,11 @@ export const useGameStore = create<OfficeStore>()(
               name: startingNames.get(agent.id) || agent.name,
             }
           })
+        }
+        if (version < 7 && Array.isArray(persisted?.agents) && Array.isArray(persisted?.desks)) {
+          const filled = fillMissingStartingAgents(persisted.agents, persisted.desks)
+          persisted.agents = filled.agents
+          persisted.desks = filled.desks
         }
         return persisted
       },

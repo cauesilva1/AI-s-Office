@@ -5,7 +5,7 @@ import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Send, Loader2, Cpu, Trash2, ArrowRightLeft } from "lucide-react"
 import { initials } from "@/lib/game/engine"
-import { HF_MODELS, HF_IMAGE_MODELS } from "@/lib/game/constants"
+import { HF_IMAGE_MODELS, HF_MODELS, modelsForSector } from "@/lib/game/constants"
 import { Agent } from "@/lib/game/types"
 
 async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<{ text: string; imageUrl?: string }> {
@@ -146,15 +146,22 @@ export default function AgentPanel() {
                 onChange={(e) => setAgentModel(agent.id, e.target.value)}
                 className="bg-cyan-500/8 border border-cyan-400/20 rounded-md text-[10px] text-cyan-100/80 px-1.5 py-0.5 max-w-[240px] focus:outline-none focus:border-cyan-300/45"
               >
-                {!HF_MODELS.includes(agent.model) && !HF_IMAGE_MODELS.includes(agent.model) && (
-                  <option value={agent.model}>{agent.model}</option>
-                )}
-                <optgroup label="Chat">
-                  {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                </optgroup>
-                <optgroup label="Imagem (Design)">
-                  {HF_IMAGE_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                </optgroup>
+                {(() => {
+                  const sectorModels = modelsForSector(agent.sectorId)
+                  const extras = [...HF_MODELS, ...HF_IMAGE_MODELS].filter(m => !sectorModels.includes(m))
+                  const currentListed = sectorModels.includes(agent.model) || extras.includes(agent.model)
+                  return (
+                    <>
+                      {!currentListed && <option value={agent.model}>{agent.model}</option>}
+                      <optgroup label={`Recomendados · ${sector?.name || agent.sectorId}`}>
+                        {sectorModels.map(m => <option key={m} value={m}>{m}</option>)}
+                      </optgroup>
+                      <optgroup label="Outros modelos">
+                        {extras.map(m => <option key={m} value={m}>{m}</option>)}
+                      </optgroup>
+                    </>
+                  )
+                })()}
               </select>
             </div>
           </div>
