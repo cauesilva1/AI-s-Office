@@ -5,10 +5,10 @@ import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Send, Loader2, Cpu, Trash2, ArrowRightLeft } from "lucide-react"
 import { initials } from "@/lib/game/engine"
-import { HF_MODELS } from "@/lib/game/constants"
-import { Agent, Message } from "@/lib/game/types"
+import { HF_MODELS, HF_IMAGE_MODELS } from "@/lib/game/constants"
+import { Agent } from "@/lib/game/types"
 
-async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<string> {
+async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<{ text: string; imageUrl?: string }> {
   const { aiProvider, hfToken } = useGameStore.getState()
   const res = await fetch("/api/chat", {
     method: "POST",
@@ -25,7 +25,10 @@ async function callAgent(agent: Agent, prompt: string, sectorName: string): Prom
     }),
   })
   const data = await res.json()
-  return data.text || data.error || "(sem resposta)"
+  return {
+    text: data.text || data.error || "(sem resposta)",
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+  }
 }
 
 export default function AgentPanel() {
@@ -50,6 +53,15 @@ export default function AgentPanel() {
     setHandoffOpen(false)
   }, [selectedAgentId])
 
+  useEffect(() => {
+    if (!selectedAgentId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") selectAgent(null)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selectedAgentId, selectAgent])
+
   if (!agent) return null
 
   const sector = sectors.find(s => s.id === agent.sectorId)
@@ -65,8 +77,8 @@ export default function AgentPanel() {
     setAgentState(agent.id, "working")
 
     try {
-      const text = await callAgent(agent, prompt, sector?.name || "")
-      addChatMessage(agent.id, { role: "assistant", content: text, timestamp: Date.now() })
+      const result = await callAgent(agent, prompt, sector?.name || "")
+      addChatMessage(agent.id, { role: "assistant", content: result.text, timestamp: Date.now(), imageUrl: result.imageUrl })
       addAgentLog(agent.id, `Respondeu: ${prompt.slice(0, 40)}${prompt.length > 40 ? "…" : ""}`)
       addFeedItem({ agentId: agent.id, kind: "message", text: `respondeu uma tarefa: "${prompt.slice(0, 60)}${prompt.length > 60 ? "…" : ""}"` })
     } catch {
@@ -93,8 +105,8 @@ export default function AgentPanel() {
     setAgentState(target.id, "working")
 
     try {
-      const text = await callAgent({ ...target, chatHistory: [...(target.chatHistory || [])] }, batonPrompt, targetSector?.name || "")
-      addChatMessage(target.id, { role: "assistant", content: text, timestamp: Date.now() })
+      const result = await callAgent({ ...target, chatHistory: [...(target.chatHistory || [])] }, batonPrompt, targetSector?.name || "")
+      addChatMessage(target.id, { role: "assistant", content: result.text, timestamp: Date.now(), imageUrl: result.imageUrl })
       addAgentLog(target.id, `Recebeu o bastão de ${agent.name} e trabalhou em cima`)
       addFeedItem({ agentId: target.id, kind: "message", text: `entregou sua parte do bastão de ${agent.name}` })
     } catch {
@@ -119,7 +131,7 @@ export default function AgentPanel() {
         {/* Header */}
         <div className="p-4 border-b border-white/5 flex items-start gap-3">
           <div 
-            className="w-12 h-12 rounded-full bg-[#0f1a12] border-2 flex items-center justify-center font-display font-bold text-lg text-white flex-shrink-0"
+            className="w-12 h-12 rounded-full bg-field border-2 flex items-center justify-center font-display font-bold text-lg text-white flex-shrink-0"
             style={{ borderColor: agent.color }}
           >
             {initials(agent.name)}
@@ -134,8 +146,15 @@ export default function AgentPanel() {
                 onChange={(e) => setAgentModel(agent.id, e.target.value)}
                 className="bg-cyan-500/8 border border-cyan-400/20 rounded-md text-[10px] text-cyan-100/80 px-1.5 py-0.5 max-w-[240px] focus:outline-none focus:border-cyan-300/45"
               >
-                {!HF_MODELS.includes(agent.model) && <option value={agent.model}>{agent.model}</option>}
-                {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                {!HF_MODELS.includes(agent.model) && !HF_IMAGE_MODELS.includes(agent.model) && (
+                  <option value={agent.model}>{agent.model}</option>
+                )}
+                <optgroup label="Chat">
+                  {HF_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+                <optgroup label="Imagem (Design)">
+                  {HF_IMAGE_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
               </select>
             </div>
           </div>
@@ -172,6 +191,13 @@ export default function AgentPanel() {
                 }`}
               >
                 {msg.content}
+                {msg.imageUrl && (
+                  <img
+                    src={msg.imageUrl}
+                    alt="Imagem gerada"
+                    className="mt-2 rounded-xl border border-white/10 max-w-full"
+                  />
+                )}
               </div>
             </div>
           ))}
@@ -188,7 +214,7 @@ export default function AgentPanel() {
         {lastAssistant && otherAgents.length > 0 && (
           <div className="px-4 pb-2 relative">
             {handoffOpen && (
-              <div className="absolute bottom-full left-4 right-4 mb-1 bg-[#1c2e21] border border-white/10 rounded-xl overflow-hidden shadow-xl z-10">
+              <div className="absolute bottom-full left-4 right-4 mb-1 bg-panel border border-line rounded-xl overflow-hidden shadow-xl z-10">
                 {otherAgents.map(t => {
                   const tSector = sectors.find(s => s.id === t.sectorId)
                   return (

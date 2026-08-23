@@ -1,4 +1,5 @@
 import { Agent, MissionStep, Sector } from "@/lib/game/types"
+import { ROUTER_MODEL } from "@/lib/game/constants"
 
 export interface RouteDecision {
   primarySectorId: string
@@ -48,9 +49,8 @@ export async function routeByLlm(params: {
   prompt: string
   sectors: Sector[]
   hfToken?: string
-  model?: string
 }): Promise<RouteDecision> {
-  const { prompt, sectors, hfToken, model } = params
+  const { prompt, sectors, hfToken } = params
 
   if (!hfToken) {
     return {
@@ -73,7 +73,7 @@ export async function routeByLlm(params: {
         sectors: sectors.map(s => ({ id: s.id, name: s.name })),
         provider: "huggingface",
         hfToken,
-        model: model || "Qwen/Qwen2.5-72B-Instruct",
+        model: ROUTER_MODEL,
       }),
     })
     const data = await response.json()
@@ -104,6 +104,20 @@ export async function routeByLlm(params: {
       reason: "Fallback por falha no classificador IA.",
     }
   }
+}
+
+// Roteamento totalmente automático: regras rápidas primeiro, IA como fallback
+export async function autoRoute(params: {
+  prompt: string
+  sectors: Sector[]
+  hfToken?: string
+}): Promise<RouteDecision> {
+  const byRules = routeByRules(params.prompt)
+  if (byRules && byRules.confidence >= 0.75) return byRules
+  const byLlm = await routeByLlm(params)
+  // Se a IA falhou/ficou insegura mas as regras tinham um palpite, prefere as regras
+  if (byRules && byLlm.confidence <= byRules.confidence) return byRules
+  return byLlm
 }
 
 export function buildPipeline(primarySectorId: string, agents: Agent[]): MissionStep[] {

@@ -31,26 +31,51 @@ export const SECTOR_LAYOUTS = {
   },
 } as const
 
-// Modelos gratuitos disponíveis via Hugging Face Inference (router)
+// Modelos de chat disponíveis via Hugging Face Inference (router) — atualizados ago/2026
 export const HF_MODELS = [
-  "Qwen/Qwen2.5-Coder-32B-Instruct",
-  "meta-llama/Llama-3.3-70B-Instruct",
+  "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "moonshotai/Kimi-K2.7-Code",
+  "deepseek-ai/DeepSeek-V4-Flash",
   "deepseek-ai/DeepSeek-R1",
-  "deepseek-ai/DeepSeek-V3",
-  "Qwen/Qwen2.5-72B-Instruct",
-  "mistralai/Mistral-7B-Instruct-v0.3",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "zai-org/GLM-5.2",
+  "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "meta-llama/Llama-3.1-8B-Instruct",
+  "Qwen/Qwen3.5-27B",
+  "google/gemma-4-26B-A4B-it",
+  "MiniMaxAI/MiniMax-M3",
   "microsoft/phi-4",
-  "meta-llama/Llama-3.2-3B-Instruct",
-  "google/gemma-2-9b-it",
 ]
 
+// Modelos text-to-image no Inference Providers (Design).
+// Pesquisa ago/2026: FLUX.1-dev é o exemplo oficial da HF e o melhor equilíbrio
+// qualidade/disponibilidade; schnell é mais rápido (Apache-2.0); Krea é o
+// recomendado da HF para realismo; Qwen-Image e SD3.5-large são alternativas.
+export const HF_IMAGE_MODELS = [
+  "black-forest-labs/FLUX.1-dev",
+  "black-forest-labs/FLUX.1-schnell",
+  "black-forest-labs/FLUX.1-Krea-dev",
+  "Qwen/Qwen-Image",
+  "stabilityai/stable-diffusion-3.5-large",
+]
+
+export function isImageModel(model: string): boolean {
+  if (HF_IMAGE_MODELS.includes(model)) return true
+  const id = model.toLowerCase()
+  return id.includes("flux") || id.includes("stable-diffusion") || id.includes("qwen-image") || id.includes("hyper-sd")
+}
+
+// Modelo pequeno e rápido dedicado ao roteamento automático de missões
+export const ROUTER_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
 export const STARTING_AGENTS = [
-  { id: "qwen-coder", name: "Qwen Coder", role: "Engenheiro Sênior", sectorId: "engineering", color: "#2dd4bf", model: "Qwen/Qwen2.5-Coder-32B-Instruct" },
-  { id: "llama", name: "Llama 3.3", role: "Designer", sectorId: "design", color: "#a78bfa", model: "meta-llama/Llama-3.3-70B-Instruct" },
-  { id: "deepseek", name: "DeepSeek R1", role: "Pesquisador", sectorId: "research", color: "#fbbf24", model: "deepseek-ai/DeepSeek-R1" },
-  { id: "qwen", name: "Qwen 2.5", role: "Cientista de Dados", sectorId: "data", color: "#60a5fa", model: "Qwen/Qwen2.5-72B-Instruct" },
-  { id: "mistral", name: "Mistral", role: "Engenheiro DevOps", sectorId: "devops", color: "#22d3ee", model: "mistralai/Mistral-7B-Instruct-v0.3" },
-  { id: "phi", name: "Phi-4", role: "Growth Hacker", sectorId: "growth", color: "#f87171", model: "microsoft/phi-4" },
+  { id: "qwen-coder", name: "Qwen3 Coder", role: "Engenheiro Sênior", sectorId: "engineering", color: "#2dd4bf", model: "Qwen/Qwen3-Coder-480B-A35B-Instruct" },
+  { id: "llama", name: "FLUX.1", role: "Designer", sectorId: "design", color: "#a78bfa", model: "black-forest-labs/FLUX.1-dev" },
+  { id: "deepseek", name: "DeepSeek V4", role: "Pesquisador", sectorId: "research", color: "#fbbf24", model: "deepseek-ai/DeepSeek-V4-Flash" },
+  { id: "qwen", name: "GPT-OSS", role: "Cientista de Dados", sectorId: "data", color: "#60a5fa", model: "openai/gpt-oss-120b" },
+  { id: "mistral", name: "GLM 5.2", role: "Engenheiro DevOps", sectorId: "devops", color: "#22d3ee", model: "zai-org/GLM-5.2" },
+  { id: "phi", name: "Llama 4", role: "Growth Hacker", sectorId: "growth", color: "#f87171", model: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8" },
 ]
 
 export const AGENT_COLORS = [

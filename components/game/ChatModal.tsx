@@ -1,8 +1,9 @@
 "use client"
 
+import { useEffect } from "react"
 import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, MessageSquare, ArrowRightLeft } from "lucide-react"
+import { X, MessageSquare, ArrowRightLeft, Copy } from "lucide-react"
 import { initials } from "@/lib/game/engine"
 
 function timeAgo(ts: number): string {
@@ -14,8 +15,27 @@ function timeAgo(ts: number): string {
 }
 
 export default function ChatModal() {
-  const { showChat, agents, teamFeed, toggleModal, selectAgent, missionHistory } = useGameStore()
+  const { showChat, agents, teamFeed, toggleModal, selectAgent, missionHistory, showToast } = useGameStore()
+
+  useEffect(() => {
+    if (!showChat) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") toggleModal("chat")
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [showChat, toggleModal])
+
   if (!showChat) return null
+
+  const copyMissionResult = async (result: string) => {
+    try {
+      await navigator.clipboard.writeText(result)
+      showToast("Resultado copiado")
+    } catch {
+      showToast("Não foi possível copiar")
+    }
+  }
 
   return (
     <AnimatePresence>
@@ -84,13 +104,36 @@ export default function ChatModal() {
           </div>
           {missionHistory.length > 0 && (
             <div className="border-t border-white/5 p-4 bg-white/[0.02]">
-              <h3 className="text-[11px] uppercase tracking-wider text-white/40 font-bold mb-2">Resultados recentes</h3>
-              <div className="space-y-2 max-h-28 overflow-y-auto">
-                {missionHistory.slice(0, 3).map((mission) => (
-                  <div key={mission.id} className="text-xs text-white/70 bg-white/5 rounded-lg px-2.5 py-2">
-                    <div className="text-white/40 text-[10px] mb-1">{mission.status.toUpperCase()} · {timeAgo(mission.createdAt)}</div>
-                    <div className="line-clamp-2">{mission.prompt}</div>
-                  </div>
+              <h3 className="text-[11px] uppercase tracking-wider text-white/40 font-bold mb-2">Histórico de missões</h3>
+              <div className="space-y-2 max-h-44 overflow-y-auto">
+                {missionHistory.slice(0, 8).map((mission) => (
+                  <details key={mission.id} className="text-xs text-white/70 bg-white/5 rounded-lg px-2.5 py-2 group">
+                    <summary className="cursor-pointer list-none">
+                      <div className="text-[10px] mb-1 flex items-center gap-1.5">
+                        <span className={mission.status === "completed" ? "text-emerald-400/80" : "text-red-400/80"}>
+                          {mission.status === "completed" ? "CONCLUÍDA" : "FALHOU"}
+                        </span>
+                        <span className="text-white/30">· {timeAgo(mission.createdAt)}</span>
+                      </div>
+                      <div className="line-clamp-2">{mission.prompt}</div>
+                    </summary>
+                    {mission.finalResult && (
+                      <div className="mt-2 pt-2 border-t border-white/10">
+                        <button
+                          onClick={(e) => { e.preventDefault(); copyMissionResult(mission.finalResult!) }}
+                          className="flex items-center gap-1 text-[10px] text-white/40 hover:text-white mb-1.5"
+                        >
+                          <Copy className="w-3 h-3" /> Copiar resultado
+                        </button>
+                        <div className="max-h-32 overflow-y-auto whitespace-pre-wrap text-white/60 text-[11px] leading-relaxed">
+                          {mission.finalResult}
+                        </div>
+                      </div>
+                    )}
+                    {mission.error && (
+                      <div className="mt-2 pt-2 border-t border-white/10 text-red-300/70 text-[11px]">{mission.error}</div>
+                    )}
+                  </details>
                 ))}
               </div>
             </div>

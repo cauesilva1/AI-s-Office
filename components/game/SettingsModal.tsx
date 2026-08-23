@@ -1,13 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Key, Bot, Wifi, WifiOff } from "lucide-react"
+import { X, Key, Wifi, WifiOff, RotateCcw } from "lucide-react"
 
 export default function SettingsModal() {
-  const { showSettings, aiProvider, hfToken, hfModel, toggleModal, setAIProvider, setHFConfig, showToast } = useGameStore()
+  const { showSettings, aiProvider, hfToken, hfModel, toggleModal, setAIProvider, setHFConfig, showToast, resetGame } = useGameStore()
   const [token, setToken] = useState(hfToken)
+  const [confirmReset, setConfirmReset] = useState(false)
+
+  useEffect(() => {
+    if (!showSettings) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") toggleModal("settings")
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [showSettings, toggleModal])
 
   if (!showSettings) return null
 
@@ -103,6 +113,38 @@ export default function SettingsModal() {
               >
                 Limpar
               </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/5">
+              {!confirmReset ? (
+                <button
+                  onClick={() => setConfirmReset(true)}
+                  className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/15 border border-red-400/20 text-red-300/80 font-display font-bold text-xs rounded-full py-2.5 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reiniciar escritório
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      resetGame()
+                      setConfirmReset(false)
+                      toggleModal("settings")
+                      showToast("Escritório reiniciado")
+                    }}
+                    className="flex-1 bg-red-500/80 hover:bg-red-500 text-white font-display font-bold text-xs rounded-full py-2.5 transition-colors"
+                  >
+                    Confirmar — apaga conversas e missões
+                  </button>
+                  <button
+                    onClick={() => setConfirmReset(false)}
+                    className="bg-white/5 hover:bg-white/10 text-white/70 font-display font-bold text-xs rounded-full px-4 py-2.5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </motion.div>

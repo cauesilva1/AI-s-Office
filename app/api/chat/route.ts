@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { isImageModel } from "@/lib/game/constants"
 
 const MOCK_RESPONSES = [
   "Análise concluída! Identifiquei 3 pontos de otimização no código. Sugiro refatorar o módulo de autenticação para usar JWT tokens com refresh rotation.",
@@ -31,6 +32,86 @@ function safeParseRouterPayload(raw: string): { sectorId: string; confidence: nu
   } catch {
     return null
   }
+}
+
+function mockDesignImage(prompt: string): string {
+  const safe = prompt.replace(/[<>&]/g, " ").slice(0, 72)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#1a1230"/>
+        <stop offset="1" stop-color="#0b1220"/>
+      </linearGradient>
+    </defs>
+    <rect fill="url(#g)" width="100%" height="100%"/>
+    <text x="50%" y="42%" fill="#a78bfa" text-anchor="middle" font-family="Inter,sans-serif" font-size="22" font-weight="700">FLUX.1-dev · simulação</text>
+    <text x="50%" y="58%" fill="#e6f4ff" text-anchor="middle" font-family="Inter,sans-serif" font-size="13">${safe}</text>
+  </svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}
+
+function imagePromptFrom(prompt: string): string {
+  const cleaned = prompt
+    .replace(/\[Bastão[^\]]*\]/gi, "")
+    .replace(/Missão principal:\s*/i, "")
+    .replace(/Contexto recebido da etapa anterior:[\s\S]*?(?=Tarefa desta etapa|$)/i, "")
+    .replace(/Tarefa desta etapa[^\n]*:\s*/i, "")
+    .replace(/Responda de forma objetiva[^\n]*/i, "")
+    .trim()
+  return cleaned.slice(0, 800) || prompt.slice(0, 800)
+}
+
+async function generateImage(model: string, prompt: string, hfToken: string): Promise<{ imageUrl?: string; error?: string }> {
+  const endpoints = [
+    `https://router.huggingface.co/hf-inference/models/${model}`,
+    `https://router.huggingface.co/fal-ai/${model}`,
+    `https://router.huggingface.co/replicate/${model}`,
+    `https://router.huggingface.co/together/${model}`,
+  ]
+  let lastErr = ""
+
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hfToken}`,
+          "Content-Type": "application/json",
+          Accept: "image/png",
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: { num_inference_steps: 28 },
+        }),
+      })
+
+      if (!response.ok) {
+        lastErr = await response.text()
+        continue
+      }
+
+      const contentType = response.headers.get("content-type") || ""
+      if (contentType.includes("application/json")) {
+        const data = await response.json()
+        const remoteUrl = data.url || data.image_url || data.images?.[0]?.url
+        if (typeof remoteUrl === "string") return { imageUrl: remoteUrl }
+        lastErr = JSON.stringify(data).slice(0, 220)
+        continue
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer())
+      if (buffer.length < 32) {
+        lastErr = "Resposta de imagem vazia"
+        continue
+      }
+      const mime = contentType.includes("jpeg") ? "image/jpeg" : contentType.includes("webp") ? "image/webp" : "image/png"
+      return { imageUrl: `data:${mime};base64,${buffer.toString("base64")}` }
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : "Falha no provedor de imagem"
+    }
+  }
+
+  return { error: lastErr || "Nenhum provedor gerou a imagem. Tente FLUX.1-schnell ou verifique o token." }
 }
 
 export async function POST(req: NextRequest) {
@@ -67,7 +148,7 @@ export async function POST(req: NextRequest) {
             "Authorization": `Bearer ${hfToken}`,
           },
           body: JSON.stringify({
-            model: model || "Qwen/Qwen2.5-72B-Instruct",
+            model: model || "meta-llama/Llama-3.1-8B-Instruct",
             messages: [{ role: "user", content: routerPrompt }],
             max_tokens: 220,
           }),
@@ -96,6 +177,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const wantsImage = isImageModel(String(model || ""))
+
+    if (wantsImage) {
+      const visualPrompt = imagePromptFrom(String(prompt || ""))
+      if (provider !== "huggingface" || !hfToken) {
+        return NextResponse.json({
+          text: `[simulação] Conceito visual gerado para: ${visualPrompt.slice(0, 140)}`,
+          imageUrl: mockDesignImage(visualPrompt),
+        })
+      }
+
+      const generated = await generateImage(String(model), visualPrompt, hfToken)
+      if (generated.error || !generated.imageUrl) {
+        return NextResponse.json({ error: generated.error || "Falha ao gerar imagem." }, { status: 200 })
+      }
+      return NextResponse.json({
+        text: `Imagem gerada com ${model}. Prompt usado: ${visualPrompt.slice(0, 200)}`,
+        imageUrl: generated.imageUrl,
+      })
+    }
+
     if (provider === "huggingface" && hfToken) {
       const systemPrompt = `Você é ${agentName}, ${agentRole} do setor ${sectorName || "Geral"} no Agent Office — um escritório virtual onde várias IAs trabalham em conjunto. Responda em português do Brasil, de forma profissional e direta. Quando receber um "bastão" (contexto vindo de outro agente), continue o trabalho a partir dele sem repetir o que já foi feito.`
 
@@ -114,7 +216,7 @@ export async function POST(req: NextRequest) {
             "Authorization": `Bearer ${hfToken}`,
           },
           body: JSON.stringify({
-            model: model || "meta-llama/Llama-3.2-3B-Instruct",
+            model: model || "meta-llama/Llama-3.1-8B-Instruct",
             messages,
             max_tokens: 1000,
           }),
@@ -122,7 +224,13 @@ export async function POST(req: NextRequest) {
 
         if (!response.ok) {
           const err = await response.text()
-          return NextResponse.json({ error: `Erro do modelo ${model}: ${err.slice(0, 300)}` }, { status: 200 })
+          let friendly = `Erro do modelo ${model}`
+          if (response.status === 401) friendly = "Token da Hugging Face inválido ou expirado. Verifique em Config."
+          else if (response.status === 402) friendly = "Créditos da Hugging Face esgotados para este mês."
+          else if (response.status === 404) friendly = `Modelo ${model} não está disponível no router da Hugging Face. Troque o modelo deste agente.`
+          else if (response.status === 429) friendly = "Limite de requisições atingido. Aguarde alguns segundos e tente de novo."
+          else friendly = `Erro do modelo ${model}: ${err.slice(0, 200)}`
+          return NextResponse.json({ error: friendly }, { status: 200 })
         }
 
         const data = await response.json()

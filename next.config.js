@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  distDir: 'dist',
+  // Sem output: 'export' — o app depende da rota de API /api/chat
   images: { unoptimized: true },
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],

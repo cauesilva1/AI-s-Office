@@ -1,4 +1,4 @@
-import { Agent, Message, MissionStep, Sector } from "@/lib/game/types"
+import { Agent, Message, MissionStep } from "@/lib/game/types"
 
 interface DispatchParams {
   step: MissionStep
@@ -10,7 +10,12 @@ interface DispatchParams {
   hfToken: string
 }
 
-export async function dispatchStep(params: DispatchParams): Promise<string> {
+export interface DispatchResult {
+  text: string
+  imageUrl?: string
+}
+
+export async function dispatchStep(params: DispatchParams): Promise<DispatchResult> {
   const { step, agent, sectorName, missionPrompt, previousResult, provider, hfToken } = params
   const handoffContext = previousResult
     ? `Contexto recebido da etapa anterior:\n${previousResult}\n\n`
@@ -45,5 +50,8 @@ export async function dispatchStep(params: DispatchParams): Promise<string> {
   })
 
   const data = await res.json()
-  return data.text || data.error || "(sem resposta)"
+  return {
+    text: data.text || data.error || "(sem resposta)",
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+  }
 }

@@ -4,6 +4,20 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { OfficeState, Agent, Desk, Sector, Message, FeedItem, Mission, MissionStep, LayoutMode } from "@/lib/game/types"
 import { BASE_SECTORS, SECTOR_LAYOUTS, STARTING_AGENTS } from "@/lib/game/constants"
+
+// Mapa de modelos antigos → novos (defaults atualizados em ago/2026)
+const MODEL_UPGRADES: Record<string, string> = {
+  "Qwen/Qwen2.5-Coder-32B-Instruct": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "meta-llama/Llama-3.3-70B-Instruct": "black-forest-labs/FLUX.1-dev",
+  "Qwen/Qwen3-VL-235B-A22B-Instruct": "black-forest-labs/FLUX.1-dev",
+  "deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-V4-Flash",
+  "Qwen/Qwen2.5-72B-Instruct": "openai/gpt-oss-120b",
+  "mistralai/Mistral-7B-Instruct-v0.3": "zai-org/GLM-5.2",
+  "microsoft/phi-4": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  "meta-llama/Llama-3.2-3B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
+  "google/gemma-2-9b-it": "google/gemma-4-26B-A4B-it",
+  "deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V4-Flash",
+}
 import { generateLogEntry } from "@/lib/game/engine"
 
 function uid(prefix: string): string {
@@ -321,7 +335,7 @@ export const useGameStore = create<OfficeStore>()(
     }),
     {
       name: "agent-office-save",
-      version: 4,
+      version: 6,
       migrate: (persisted: any, version) => {
         // Estruturas antigas (era um jogo) — recria o escritório do zero, preservando o token
         if (version < 4) {
@@ -331,6 +345,18 @@ export const useGameStore = create<OfficeStore>()(
             aiProvider: persisted?.aiProvider === "huggingface" ? "huggingface" : "mock",
             layoutMode: persisted?.layoutMode === "compact" ? "compact" : "wide",
           }
+        }
+        if (version < 6 && Array.isArray(persisted?.agents)) {
+          const startingNames = new Map(STARTING_AGENTS.map((a) => [a.id, a.name]))
+          persisted.agents = persisted.agents.map((agent: Agent) => {
+            const upgraded = MODEL_UPGRADES[agent.model]
+            if (!upgraded) return agent
+            return {
+              ...agent,
+              model: upgraded,
+              name: startingNames.get(agent.id) || agent.name,
+            }
+          })
         }
         return persisted
       },

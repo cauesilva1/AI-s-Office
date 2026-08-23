@@ -45,6 +45,7 @@ export interface Message {
   content: string
   timestamp: number
   handoffFrom?: string
+  imageUrl?: string
 }
 
 export interface FeedItem {

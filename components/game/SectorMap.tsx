@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useGameStore } from "@/store/gameStore"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Cpu } from "lucide-react"
@@ -7,6 +8,15 @@ import { initials } from "@/lib/game/engine"
 
 export default function SectorMap() {
   const { showSectorMap, sectors, agents, desks, toggleModal, selectAgent } = useGameStore()
+
+  useEffect(() => {
+    if (!showSectorMap) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") toggleModal("sectorMap")
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [showSectorMap, toggleModal])
 
   if (!showSectorMap) return null
 
@@ -23,10 +33,10 @@ export default function SectorMap() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-[#16241a] border border-white/5 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+          className="bg-panel border border-line rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto"
           onClick={e => e.stopPropagation()}
         >
-          <div className="p-5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-[#16241a]">
+          <div className="p-5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-panel">
             <h2 className="font-display font-bold text-white text-lg">Setores e Equipe</h2>
             <button onClick={() => toggleModal("sectorMap")} className="text-white/40 hover:text-white">
               <X className="w-5 h-5" />

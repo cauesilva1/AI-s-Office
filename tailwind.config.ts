@@ -10,6 +10,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Tokens do tema tech dark do Agent Office
+        panel: "#101a29",
+        panel2: "#0d1522",
+        field: "#0f1724",
+        line: "rgba(103, 232, 249, 0.15)",
+        bright: "#e6f4ff",
+        dim: "rgba(230, 244, 255, 0.55)",
+        faint: "rgba(230, 244, 255, 0.32)",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
