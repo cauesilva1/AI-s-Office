@@ -5,7 +5,7 @@ import { useGameStore } from "@/store/gameStore"
 import { Check, Copy, Loader2, Send, Sparkles, X, Route, Play } from "lucide-react"
 import { autoRoute, buildPipeline, RouteDecision } from "@/lib/orchestrator/hybridRouter"
 import { dispatchSectorEnsemble, dispatchStep } from "@/lib/orchestrator/dispatch"
-import { routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
+import { looksLikeImageRequest, routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
 import { MissionStep } from "@/lib/game/types"
 import RobotAvatar from "@/components/office/RobotAvatar"
 import { activeApiKey, providerNeedsKey } from "@/lib/ai/providers"
@@ -68,13 +68,24 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
   )
 
   const previewHasDesign = routeIncludesDesign(previewRoute)
-  const designNeedsHf =
+  // Aviso forte só se a rota ainda aponta a modelo de imagem sem HF
+  const designHasImageModel = previewRoute.some(step => {
+    const agent = agents.find(a => a.id === step.agentId)
+    return Boolean(agent && isImageModel(agent.model))
+  })
+  const designNeedsHf = previewHasDesign && designHasImageModel && !hfKey
+  // Dica: pedido de imagem com Design em texto (OR/solo) sem HF
+  const designTextOnlyTip =
     previewHasDesign &&
-    (aiProvider !== "huggingface" || !hfKey) &&
-    previewRoute.some(step => {
-      const agent = agents.find(a => a.id === step.agentId)
-      return agent && (step.sectorId === "design" || isImageModel(agent.model))
-    })
+    !designHasImageModel &&
+    !hfKey &&
+    aiProvider !== "huggingface" &&
+    looksLikeImageRequest(prompt)
+  const canHybridFlux =
+    previewHasDesign &&
+    Boolean(hfKey) &&
+    aiProvider !== "huggingface" &&
+    looksLikeImageRequest(prompt)
 
   const stepPhase = (idx: number): StepPhase => {
     if (idx < stepIndex) return "done"
@@ -234,6 +245,70 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
             ? `Síntese do trio · etapa ${i + 1}: ${sectorName}`
             : `Concluiu etapa ${i + 1}: ${sectorName}`,
         })
+
+        // Híbrido: OR/solo + pedido de imagem + key HF salva → gera FLUX de verdade
+        if (
+          step.sectorId === "design" &&
+          looksLikeImageRequest(content) &&
+          !result.imageUrl &&
+          aiProvider !== "huggingface"
+        ) {
+          const hfApiKey = activeApiKey("huggingface", apiKeys, hfToken)
+          if (hfApiKey) {
+            markWorking(agent.id)
+            try {
+              addFeedItem({
+                missionId: mission.id,
+                stage: i + 1,
+                agentId: agent.id,
+                kind: "info",
+                text: "Gerando pixels com FLUX (Hugging Face)…",
+              })
+              const fluxRes = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: abortRef.current?.signal,
+                body: JSON.stringify({
+                  agentName: "FLUX",
+                  agentRole: "Geração de imagem",
+                  sectorName: "Design",
+                  sectorId: "design",
+                  prompt: `${content}\n\nBrief do Design:\n${result.text.slice(0, 600)}`,
+                  history: [],
+                  provider: "huggingface",
+                  apiKey: hfApiKey,
+                  hfToken: hfApiKey,
+                  model: "black-forest-labs/FLUX.1-schnell",
+                }),
+              })
+              const fluxData = await fluxRes.json()
+              if (fluxData?.imageUrl) {
+                result = {
+                  ...result,
+                  text: `${result.text}\n\n[FLUX] ${fluxData.text || "Imagem gerada."}`,
+                  imageUrl: fluxData.imageUrl,
+                }
+                addChatMessage(agent.id, {
+                  role: "assistant",
+                  content: "Imagem FLUX gerada com a key Hugging Face.",
+                  timestamp: Date.now(),
+                  imageUrl: fluxData.imageUrl,
+                })
+              } else if (fluxData?.error) {
+                addFeedItem({
+                  missionId: mission.id,
+                  stage: i + 1,
+                  agentId: agent.id,
+                  kind: "info",
+                  text: `FLUX: ${String(fluxData.error).slice(0, 120)}`,
+                })
+              }
+            } finally {
+              markIdle(agent.id)
+            }
+          }
+        }
+
         previousResult = result.imageUrl
           ? `${result.text}\n\n[imagem gerada pelo Design]`
           : result.text
@@ -476,12 +551,21 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
 
           {designNeedsHf && (
             <div className="mt-2 border-2 border-coral bg-coral/10 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
-              <strong>Design / FLUX:</strong> a rota inclui Design, mas o provedor ativo não é Hugging Face
-              {hfKey ? "" : " (ou falta o token HF)"}. A imagem pode sair em <em>simulação</em>.
-              Para FLUX real, salve um token HF em API ou troque o modelo do agente de Design para texto.
+              <strong>Design / FLUX:</strong> a rota usa modelo de imagem, mas falta token Hugging Face.
+              Salve a key HF no painel API (pode voltar ao OpenRouter depois).
             </div>
           )}
-
+          {!designNeedsHf && designTextOnlyTip && (
+            <div className="mt-2 border-2 border-ink/20 bg-cream-2 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
+              <strong>Imagem:</strong> com OpenRouter o Design entrega brief visual em texto.
+              Para gerar pixels (FLUX), salve também uma key HF: abra API → HF → cole → Salvar → volte ao OR.
+            </div>
+          )}
+          {canHybridFlux && (
+            <div className="mt-2 border-2 border-ink/20 bg-cream-2 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
+              <strong>FLUX híbrido:</strong> key HF detectada — após o Design, a missão gera a imagem de verdade.
+            </div>
+          )}
           <p className="text-[10px] text-muted-ink mt-2">
             Entre etapas o bastão leva só um <strong>resumo</strong>, não o texto inteiro.
           </p>

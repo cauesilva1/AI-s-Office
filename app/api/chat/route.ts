@@ -38,22 +38,6 @@ function safeParseRouterPayload(raw: string): { sectorId: string; confidence: nu
   }
 }
 
-function mockDesignImage(prompt: string): string {
-  const safe = prompt.replace(/[<>&']/g, " ").slice(0, 72)
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#1a1230"/>
-        <stop offset="1" stop-color="#0b1220"/>
-      </linearGradient>
-    </defs>
-    <rect fill="url(#g)" width="100%" height="100%"/>
-    <text x="50%" y="42%" fill="#a78bfa" text-anchor="middle" font-family="Inter,sans-serif" font-size="22" font-weight="700">FLUX · simulação</text>
-    <text x="50%" y="58%" fill="#e6f4ff" text-anchor="middle" font-family="Inter,sans-serif" font-size="13">${safe}</text>
-  </svg>`
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
-
 function imagePromptFrom(prompt: string): string {
   const cleaned = prompt
     .replace(/\[Bastão[^\]]*\]/gi, "")
@@ -196,14 +180,18 @@ export async function POST(req: NextRequest) {
 
     if (wantsImage) {
       const visualPrompt = imagePromptFrom(String(prompt || ""))
-      // Imagem: sempre tenta HF (server env ou client)
-      const hfResolved = resolveApiKey("huggingface", clientKey)
+      // Imagem FLUX: HF do body (mesmo com OR ativo) ou env do servidor
+      const hfFromClient = String(body.hfToken || body.apiKey || clientKey || "")
+      const hfResolved = resolveApiKey("huggingface", hfFromClient)
       const hfKey = hfResolved.apiKey || serverKeyFor("huggingface")
 
       if (!hfKey) {
         return NextResponse.json({
-          text: `Imagem (FLUX) precisa de Hugging Face. Provedor atual: ${provider}. Conceito: ${visualPrompt.slice(0, 120)}`,
-          imageUrl: mockDesignImage(visualPrompt),
+          text: [
+            "Não foi possível gerar pixels: falta token Hugging Face.",
+            "Salve uma key HF no painel API (pode manter OpenRouter ativo depois).",
+            `Conceito visual: ${visualPrompt.slice(0, 280)}`,
+          ].join(" "),
         })
       }
 

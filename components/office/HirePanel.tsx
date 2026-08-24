@@ -17,8 +17,13 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
   const [role, setRole] = useState("")
   const [sectorId, setSectorId] = useState(sectors[0]?.id || "engineering")
 
+  const sectorDefaults =
+    aiProvider !== "mock" && aiProvider !== "huggingface"
+      ? SECTOR_DEFAULTS[aiProvider]
+      : undefined
+
   const catalog = solo
-    ? (SECTOR_DEFAULTS[aiProvider]?.[sectorId] || modelsForProvider(aiProvider))
+    ? (sectorDefaults?.[sectorId] || modelsForProvider(aiProvider))
     : ensemble
       ? (SECTOR_DEFAULTS.openrouter?.[sectorId] || modelsForProvider("openrouter"))
       : modelsForSector(sectorId)
@@ -32,10 +37,12 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
 
   const pickSector = (id: string) => {
     setSectorId(id)
+    const defaults =
+      aiProvider !== "mock" && aiProvider !== "huggingface"
+        ? SECTOR_DEFAULTS[aiProvider]
+        : undefined
     const next = solo || ensemble
-      ? (SECTOR_DEFAULTS[aiProvider as keyof typeof SECTOR_DEFAULTS]?.[id]
-          || (ensemble ? SECTOR_DEFAULTS.openrouter[id] : modelsForProvider(aiProvider))
-          || [])
+      ? (defaults?.[id] || (ensemble ? SECTOR_DEFAULTS.openrouter[id] : modelsForProvider(aiProvider)) || [])
       : modelsForSector(id)
     setModel(next[0] || defaultModelForSector(aiProvider, id))
   }
