@@ -16,7 +16,7 @@ export default function Toast() {
           onAnimationComplete={() => {
             setTimeout(hideToast, 2500)
           }}
-          className="absolute bottom-6 left-1/2 z-[70] bg-panel border border-line text-white px-5 py-2.5 rounded-full shadow-xl font-medium text-sm whitespace-nowrap"
+          className="fixed bottom-6 left-1/2 z-[80] bg-navy text-cream border-[3px] border-ink shadow-pixel px-5 py-2.5 font-pixel text-[9px] whitespace-nowrap max-w-[90vw] truncate"
         >
           {toast.message}
         </motion.div>

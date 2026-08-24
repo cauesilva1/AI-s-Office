@@ -48,16 +48,21 @@ export function routeByRules(prompt: string): RouteDecision | null {
 export async function routeByLlm(params: {
   prompt: string
   sectors: Sector[]
+  provider?: string
+  apiKey?: string
+  /** @deprecated */
   hfToken?: string
 }): Promise<RouteDecision> {
-  const { prompt, sectors, hfToken } = params
+  const { prompt, sectors } = params
+  const apiKey = params.apiKey || params.hfToken || ""
+  const provider = params.provider || (apiKey ? "huggingface" : "mock")
 
-  if (!hfToken) {
+  if (!apiKey || provider === "mock") {
     return {
       primarySectorId: "research",
       strategy: "llm",
       confidence: 0.45,
-      reason: "Sem token HF; fallback padrão para Pesquisa.",
+      reason: "Sem API key; fallback padrão para Pesquisa.",
     }
   }
 
@@ -71,9 +76,10 @@ export async function routeByLlm(params: {
         taskType: "router",
         prompt,
         sectors: sectors.map(s => ({ id: s.id, name: s.name })),
-        provider: "huggingface",
-        hfToken,
-        model: ROUTER_MODEL,
+        provider,
+        apiKey,
+        hfToken: apiKey,
+        model: provider === "huggingface" ? ROUTER_MODEL : undefined,
       }),
     })
     const data = await response.json()
@@ -110,6 +116,8 @@ export async function routeByLlm(params: {
 export async function autoRoute(params: {
   prompt: string
   sectors: Sector[]
+  provider?: string
+  apiKey?: string
   hfToken?: string
 }): Promise<RouteDecision> {
   const byRules = routeByRules(params.prompt)

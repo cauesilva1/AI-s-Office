@@ -1,3 +1,7 @@
+import type { AIProvider, ApiKeys } from "@/lib/ai/providers"
+
+export type { AIProvider, ApiKeys }
+
 export interface Agent {
   id: string
   name: string
@@ -60,7 +64,6 @@ export interface FeedItem {
 }
 
 export type RoutingMode = "hybrid"
-export type LayoutMode = "wide" | "compact"
 export type MissionStatus = "queued" | "routing" | "running" | "completed" | "failed"
 
 export interface MissionStep {
@@ -84,7 +87,6 @@ export interface Mission {
 }
 
 export interface OfficeState {
-  hour: number
   sectors: Sector[]
   agents: Agent[]
   desks: Desk[]
@@ -93,10 +95,13 @@ export interface OfficeState {
   activeMission: Mission | null
   missionHistory: Mission[]
   routingMode: RoutingMode
-  layoutMode: LayoutMode
-  aiProvider: "huggingface" | "mock"
+  aiProvider: AIProvider
+  /** @deprecated use apiKeys.huggingface — mantido p/ migração */
   hfToken: string
   hfModel: string
+  apiKeys: ApiKeys
+  providerError: string | null
+  settingsOpenNonce: number
   selectedDeskId: string | null
   selectedAgentId: string | null
   showSettings: boolean
@@ -106,5 +111,4 @@ export interface OfficeState {
   toast: { message: string; visible: boolean }
 }
 
-// Alias mantido para componentes antigos
 export type GameState = OfficeState

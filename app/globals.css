@@ -1,78 +1,135 @@
-@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  /* App é dark-only: tema escuro direto no :root (a classe .dark nunca era aplicada,
-     o que deixava fundo e campos nativos brancos) */
   :root {
-    color-scheme: dark;
-    --background: 220 45% 8%;
-    --foreground: 210 40% 96%;
-    --card: 218 40% 11%;
-    --card-foreground: 210 40% 96%;
-    --popover: 218 40% 11%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 210 40% 96%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 187 80% 53%;
-    --accent-foreground: 220 45% 8%;
-    --destructive: 0 62.8% 40%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 187 80% 53%;
-    --radius: 0.5rem;
-  }
-}
+    color-scheme: light;
+    --navy: #0b1a2b;
+    --navy-2: #12253a;
+    --cream: #f3efe4;
+    --cream-2: #ebe4d4;
+    --ink: #1a1a1a;
+    --coral: #e2554a;
+    --grid: #2d8f6f;
+    --paper: #fffdf8;
+    --line-dark: #1a1a1a;
+    --muted-ink: #5a564c;
 
-@layer base {
+    --background: 40 33% 92%;
+    --foreground: 0 0% 10%;
+    --card: 40 50% 98%;
+    --card-foreground: 0 0% 10%;
+    --popover: 40 50% 98%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 4 72% 58%;
+    --primary-foreground: 40 33% 96%;
+    --secondary: 210 45% 18%;
+    --secondary-foreground: 40 33% 96%;
+    --muted: 40 20% 86%;
+    --muted-foreground: 40 8% 35%;
+    --accent: 4 72% 58%;
+    --accent-foreground: 40 33% 96%;
+    --destructive: 4 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 10%;
+    --input: 40 50% 98%;
+    --ring: 4 72% 58%;
+    --radius: 0px;
+  }
+
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, sans-serif;
+
+  html {
+    scroll-behavior: smooth;
   }
 
-  /* Controles nativos sempre escuros (dropdowns de <select>, autofill, etc.) */
-  select,
-  select option {
-    background-color: #0f1724;
-    color: #e6f4ff;
+  body {
+    @apply bg-cream text-ink antialiased;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
   }
+
+  h1, h2, h3, .font-pixel {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    line-height: 1.55;
+  }
+
+  /* Campos no corpo creme */
+  .theme-cream select,
+  .theme-cream select option,
+  .theme-cream input,
+  .theme-cream textarea {
+    background-color: #fffdf8;
+    color: #1a1a1a;
+  }
+
+  /* Campos em painéis navy / modais escuros */
+  .theme-navy select,
+  .theme-navy select option,
+  .theme-navy input,
+  .theme-navy textarea {
+    background-color: #12253a;
+    color: #f3efe4;
+  }
+
   input:-webkit-autofill,
   input:-webkit-autofill:hover,
   input:-webkit-autofill:focus {
-    -webkit-text-fill-color: #e6f4ff;
-    -webkit-box-shadow: 0 0 0 1000px #0f1724 inset;
+    -webkit-text-fill-color: #1a1a1a;
+    -webkit-box-shadow: 0 0 0 1000px #fffdf8 inset;
     transition: background-color 5000s ease-in-out 0s;
   }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+@layer components {
+  .pixel-border {
+    border: 3px solid #1a1a1a;
+    box-shadow: 4px 4px 0 #1a1a1a;
+  }
+
+  .pixel-border-sm {
+    border: 2px solid #1a1a1a;
+    box-shadow: 2px 2px 0 #1a1a1a;
+  }
+
+  .pixel-nav-btn {
+    @apply inline-flex items-center justify-center px-3 py-2 text-[10px] uppercase tracking-wider;
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    border: 2px solid #e2554a;
+    color: #f3efe4;
+    background: transparent;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .pixel-nav-btn:hover,
+  .pixel-nav-btn[data-active="true"] {
+    background: #e2554a;
+    color: #0b1a2b;
+  }
+
+  .hero-grid {
+    background-image:
+      linear-gradient(rgba(45, 143, 111, 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(45, 143, 111, 0.35) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: center bottom;
+  }
 }
 
-/* Prevent text selection on game UI */
-.select-none {
-  user-select: none;
-  -webkit-user-select: none;
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #ebe4d4;
+}
+::-webkit-scrollbar-thumb {
+  background: #0b1a2b;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #e2554a;
 }

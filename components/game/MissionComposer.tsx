@@ -2,22 +2,30 @@
 
 import { useMemo, useRef, useState } from "react"
 import { useGameStore } from "@/store/gameStore"
-import { Check, Copy, Loader2, Send, Settings2, Sparkles, X } from "lucide-react"
+import { Check, Copy, Loader2, Send, Sparkles, X, Route, Play } from "lucide-react"
 import { autoRoute, buildPipeline, RouteDecision } from "@/lib/orchestrator/hybridRouter"
-import { dispatchStep } from "@/lib/orchestrator/dispatch"
+import { dispatchSectorEnsemble, dispatchStep } from "@/lib/orchestrator/dispatch"
+import { routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
 import { MissionStep } from "@/lib/game/types"
+import RobotAvatar from "@/components/office/RobotAvatar"
+import { activeApiKey, providerNeedsKey } from "@/lib/ai/providers"
+import { isProviderAuthError } from "@/lib/ai/remapModels"
+import { isImageModel } from "@/lib/game/constants"
+import { isEnsembleProvider } from "@/lib/ai/officeMode"
 
 function sectorNameById(id: string, sectors: { id: string; name: string }[]): string {
   return sectors.find(s => s.id === id)?.name || id
 }
 
 type StepPhase = "pending" | "running" | "done"
+type Phase = "idle" | "planning" | "preview" | "running"
 
-export default function MissionComposer() {
+export default function MissionComposer({ compact = false }: { compact?: boolean }) {
   const {
     sectors,
     agents,
     aiProvider,
+    apiKeys,
     hfToken,
     activeMission,
     createMission,
@@ -29,45 +37,85 @@ export default function MissionComposer() {
     setAgentState,
     addAgentLog,
     showToast,
-    toggleModal,
+    setProviderError,
+    requestOpenSettings,
+    serverProviders,
   } = useGameStore()
 
   const [prompt, setPrompt] = useState("")
   const [decision, setDecision] = useState<RouteDecision | null>(null)
+  const [previewRoute, setPreviewRoute] = useState<MissionStep[]>([])
   const [liveRoute, setLiveRoute] = useState<MissionStep[]>([])
   const [stepIndex, setStepIndex] = useState(-1)
-  const [running, setRunning] = useState(false)
+  const [phase, setPhase] = useState<Phase>("idle")
   const [lastResult, setLastResult] = useState<string | null>(null)
   const [showAdjust, setShowAdjust] = useState(false)
   const [manualSectorId, setManualSectorId] = useState(sectors[0]?.id || "engineering")
   const [manualRoute, setManualRoute] = useState<MissionStep[]>([])
   const cancelRef = useRef(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const workingIdsRef = useRef<Set<string>>(new Set())
 
-  const missionBusy = Boolean(activeMission) || running
-  const needsToken = aiProvider !== "huggingface" || !hfToken
+  const missionBusy = phase === "planning" || phase === "running" || Boolean(activeMission)
+  const apiKey = activeApiKey(aiProvider, apiKeys, hfToken)
+  const hasServerKey = aiProvider !== "mock" && serverProviders.includes(aiProvider)
+  const needsToken = providerNeedsKey(aiProvider, apiKeys, hfToken) && !hasServerKey
+  const hfKey = activeApiKey("huggingface", apiKeys, hfToken) || (serverProviders.includes("huggingface") ? "server" : "")
 
   const routeSummary = useMemo(
     () => manualRoute.map(step => sectorNameById(step.sectorId, sectors)).join(" → "),
     [manualRoute, sectors]
   )
 
+  const previewHasDesign = routeIncludesDesign(previewRoute)
+  const designNeedsHf =
+    previewHasDesign &&
+    (aiProvider !== "huggingface" || !hfKey) &&
+    previewRoute.some(step => {
+      const agent = agents.find(a => a.id === step.agentId)
+      return agent && (step.sectorId === "design" || isImageModel(agent.model))
+    })
+
   const stepPhase = (idx: number): StepPhase => {
     if (idx < stepIndex) return "done"
-    if (idx === stepIndex && running) return "running"
+    if (idx === stepIndex && phase === "running") return "running"
     return "pending"
+  }
+
+  const markWorking = (agentId: string) => {
+    workingIdsRef.current.add(agentId)
+    setAgentState(agentId, "working")
+  }
+
+  const markIdle = (agentId: string) => {
+    workingIdsRef.current.delete(agentId)
+    setAgentState(agentId, "idle")
+  }
+
+  const forceAllIdle = () => {
+    workingIdsRef.current.forEach(id => setAgentState(id, "idle"))
+    workingIdsRef.current.clear()
+    // Também limpa qualquer agente stuck no store
+    useGameStore.getState().agents.forEach(a => {
+      if (a.spriteState === "working") setAgentState(a.id, "idle")
+    })
   }
 
   const executeMission = async (content: string, route: MissionStep[], routeDecision: RouteDecision | null) => {
     const validRoute = route.filter(step => step.agentId)
     if (validRoute.length === 0) {
       showToast("Nenhum agente disponível para essa rota")
+      setPhase("idle")
       return
     }
 
     cancelRef.current = false
+    abortRef.current = new AbortController()
     setLiveRoute(validRoute)
     setStepIndex(0)
     setLastResult(null)
+    setPhase("running")
+    setPreviewRoute([])
 
     const mission = createMission({
       prompt: content,
@@ -88,9 +136,10 @@ export default function MissionComposer() {
         const agent = agents.find(a => a.id === step.agentId)
         if (!agent) continue
         const sectorName = sectorNameById(step.sectorId, sectors)
-        const stepPrompt = i === 0
+
+        const handoffNote = i === 0
           ? content
-          : `[Bastão automático da etapa anterior]\n${previousResult}`
+          : `[Bastão · resumo]\n${summarizeForHandoff(previousResult)}`
 
         addFeedItem({
           missionId: mission.id,
@@ -99,46 +148,95 @@ export default function MissionComposer() {
           kind: i === 0 ? "info" : "handoff",
           text: i === 0
             ? `Iniciou missão no setor ${sectorName}`
-            : `Recebeu bastão para etapa ${i + 1} (${sectorName})`,
+            : `Recebeu bastão (resumo) · etapa ${i + 1} (${sectorName})`,
         })
 
         addChatMessage(agent.id, {
           role: "user",
-          content: i === 0 ? content : stepPrompt,
+          content: handoffNote,
           timestamp: Date.now(),
           handoffFrom: i === 0 ? undefined : "Pipeline automático",
         })
-        setAgentState(agent.id, "working")
-        let result: { text: string; imageUrl?: string }
+
+        const sectorTeam = isEnsembleProvider(aiProvider)
+          ? agents.filter(a => a.sectorId === step.sectorId)
+          : [agent]
+
+        sectorTeam.forEach(a => markWorking(a.id))
+        let result: { text: string; imageUrl?: string; parts?: Array<{ agentId: string; model: string; text: string }> }
         try {
-          result = await dispatchStep({
-            step,
-            agent,
-            sectorName,
-            missionPrompt: content,
-            previousResult,
-            provider: aiProvider,
-            hfToken,
-          })
+          if (isEnsembleProvider(aiProvider) && sectorTeam.length > 1) {
+            addFeedItem({
+              missionId: mission.id,
+              stage: i + 1,
+              agentId: agent.id,
+              kind: "info",
+              text: `Trio em paralelo · ${sectorTeam.length} modelos (${sectorName})`,
+            })
+            result = await dispatchSectorEnsemble({
+              step,
+              sectorAgents: sectorTeam,
+              sectorName,
+              missionPrompt: content,
+              previousResult,
+              provider: aiProvider,
+              apiKey,
+              signal: abortRef.current?.signal,
+            })
+          } else {
+            result = await dispatchStep({
+              step,
+              agent,
+              sectorName,
+              missionPrompt: content,
+              previousResult,
+              provider: aiProvider,
+              apiKey,
+              signal: abortRef.current?.signal,
+            })
+          }
         } finally {
-          setAgentState(agent.id, "idle")
+          sectorTeam.forEach(a => markIdle(a.id))
         }
+
         if (cancelRef.current) throw new Error("Missão cancelada pelo usuário")
-        addChatMessage(agent.id, {
-          role: "assistant",
-          content: result.text,
-          timestamp: Date.now(),
-          imageUrl: result.imageUrl,
-        })
+
+        if (result.parts) {
+          for (const part of result.parts) {
+            addChatMessage(part.agentId, {
+              role: "assistant",
+              content: part.text,
+              timestamp: Date.now(),
+            })
+            addAgentLog(part.agentId, `Etapa ${i + 1} · ângulo paralelo`)
+          }
+          addChatMessage(agent.id, {
+            role: "assistant",
+            content: `【Síntese do trio】\n${result.text}`,
+            timestamp: Date.now(),
+            imageUrl: result.imageUrl,
+          })
+        } else {
+          addChatMessage(agent.id, {
+            role: "assistant",
+            content: result.text,
+            timestamp: Date.now(),
+            imageUrl: result.imageUrl,
+          })
+        }
         addAgentLog(agent.id, `Etapa ${i + 1} da missão concluída`)
         addFeedItem({
           missionId: mission.id,
           stage: i + 1,
           agentId: agent.id,
           kind: "message",
-          text: `Concluiu etapa ${i + 1}: ${sectorName}`,
+          text: isEnsembleProvider(aiProvider)
+            ? `Síntese do trio · etapa ${i + 1}: ${sectorName}`
+            : `Concluiu etapa ${i + 1}: ${sectorName}`,
         })
-        previousResult = result.imageUrl ? `${result.text}\n\n[imagem gerada pelo Design]` : result.text
+        previousResult = result.imageUrl
+          ? `${result.text}\n\n[imagem gerada pelo Design]`
+          : result.text
         consolidated += `\n\n[Etapa ${i + 1} - ${sectorName}]\n${result.text}`
       }
 
@@ -151,21 +249,36 @@ export default function MissionComposer() {
       setDecision(null)
       setManualRoute([])
       setShowAdjust(false)
+      setPhase("idle")
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Falha na execução da missão"
+      forceAllIdle()
+      const aborted =
+        (error instanceof Error && error.name === "AbortError") ||
+        (error instanceof Error && /cancelad/i.test(error.message))
+      const message = aborted
+        ? "Missão cancelada pelo usuário"
+        : error instanceof Error
+          ? error.message
+          : "Falha na execução da missão"
       failActiveMission(message)
       showToast(message)
+      if (!aborted && isProviderAuthError(message)) setProviderError(message)
       setStepIndex(-1)
       setLiveRoute([])
+      setPhase("idle")
+    } finally {
+      abortRef.current = null
+      forceAllIdle()
     }
   }
 
-  // Fluxo principal: um clique roteia automaticamente e já executa
-  const submitMission = async () => {
+  /** Monta preview — não executa ainda */
+  const planMission = async () => {
     const content = prompt.trim()
     if (!content || missionBusy) return
 
-    setRunning(true)
+    setPhase("planning")
+    setLastResult(null)
     try {
       let route: MissionStep[]
       let routeDecision: RouteDecision | null = null
@@ -173,27 +286,57 @@ export default function MissionComposer() {
       if (showAdjust && manualRoute.filter(s => s.agentId).length > 0) {
         route = manualRoute
       } else {
-        routeDecision = await autoRoute({ prompt: content, sectors, hfToken })
+        routeDecision = await autoRoute({
+          prompt: content,
+          sectors,
+          provider: aiProvider,
+          apiKey,
+        })
         route = buildPipeline(routeDecision.primarySectorId, agents)
         setDecision(routeDecision)
-        showToast(`Rota automática: ${route.map(s => sectorNameById(s.sectorId, sectors)).join(" → ")}`)
       }
 
-      await executeMission(content, route, routeDecision)
-    } finally {
-      setRunning(false)
+      const valid = route.filter(s => s.agentId)
+      if (valid.length === 0) {
+        showToast("Nenhum agente disponível para essa rota")
+        setPhase("idle")
+        return
+      }
+
+      setPreviewRoute(valid)
+      setPhase("preview")
+      showToast(`Rota pronta: ${valid.map(s => sectorNameById(s.sectorId, sectors)).join(" → ")}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao montar rota"
+      showToast(message)
+      setPhase("idle")
     }
+  }
+
+  const confirmPreview = async () => {
+    const content = prompt.trim()
+    if (!content || previewRoute.length === 0) return
+    await executeMission(content, previewRoute, decision)
+  }
+
+  const discardPreview = () => {
+    setPreviewRoute([])
+    setDecision(null)
+    setPhase("idle")
   }
 
   const cancelMission = () => {
     cancelRef.current = true
+    abortRef.current?.abort()
+    forceAllIdle()
     showToast("Cancelando missão...")
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      submitMission()
+      if (phase === "preview") confirmPreview()
+      else if (!missionBusy) planMission()
     }
   }
 
@@ -215,51 +358,71 @@ export default function MissionComposer() {
   }
 
   return (
-    <div className="absolute left-1/2 -translate-x-1/2 bottom-4 z-50 w-[min(920px,95vw)] bg-panel/95 backdrop-blur-md border border-line rounded-2xl p-3.5 shadow-[0_15px_45px_rgba(8,12,20,0.65)]">
+    <div id="missao" className={compact ? "h-full flex flex-col" : "bg-paper border-[3px] border-ink shadow-pixel p-4 sm:p-5"}>
       {needsToken && (
-        <button
-          onClick={() => toggleModal("settings")}
-          className="w-full mb-2.5 flex items-center gap-2 bg-amber-500/10 border border-amber-400/25 rounded-xl px-3 py-2 text-left hover:bg-amber-500/15 transition-colors"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-          <span className="text-[11px] text-amber-200/90">
-            Modo simulação ativo — configure seu token gratuito da Hugging Face para usar IAs reais. Clique aqui para abrir a Config.
+        <div className="w-full mb-3 flex items-start gap-2 bg-amber-50 border-2 border-ink px-3 py-2">
+          <Sparkles className="w-3.5 h-3.5 text-coral flex-shrink-0 mt-0.5" />
+          <span className="flex-1 text-[11px] text-ink leading-relaxed">
+            Sem API key — respostas em simulação.
           </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => requestOpenSettings()}
+            className="text-[10px] font-bold border-2 border-ink px-2 py-1 bg-paper hover:bg-coral hover:text-cream flex-shrink-0"
+          >
+            Abrir API
+          </button>
+        </div>
       )}
 
-      <div className="flex items-start gap-3">
-        <Sparkles className="w-4 h-4 text-amber-400 mt-2" />
-        <div className="flex-1">
-          <label className="text-[10px] uppercase tracking-widest text-dim font-bold mb-2 block">
-            Missão global — o escritório roteia e executa sozinho
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={2}
-            disabled={missionBusy}
-            placeholder="Descreva o que você quer. Enter envia; o escritório decide quem executa e em que ordem..."
-            className="w-full bg-field border border-line rounded-xl p-3 text-bright text-sm placeholder:text-faint focus:outline-none focus:border-accent resize-none disabled:opacity-50"
-          />
-        </div>
-      </div>
+      <label className="text-sm font-bold text-ink mb-2 block">Missão</label>
+      <p className="text-[11px] text-muted-ink mb-2">
+        Descreva o briefing. Você vê a rota antes de executar.
+      </p>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={onKeyDown}
+        rows={compact ? 4 : 3}
+        disabled={missionBusy && phase !== "preview"}
+        placeholder="Ex.: Crie um landing page copy e um plano de deploy…"
+        className="w-full bg-paper border-[3px] border-ink p-3 text-ink text-sm placeholder:text-muted-ink focus:outline-none focus:border-coral resize-none disabled:opacity-50"
+      />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {!missionBusy ? (
+        {phase === "idle" || phase === "planning" ? (
           <button
-            onClick={submitMission}
-            disabled={!prompt.trim()}
-            className="inline-flex items-center gap-1.5 bg-violet-500/85 hover:bg-violet-400 text-white text-xs font-bold rounded-full px-4 py-2 disabled:opacity-40 transition-colors"
+            onClick={planMission}
+            disabled={!prompt.trim() || phase === "planning"}
+            className="text-xs font-bold inline-flex items-center gap-1.5 bg-coral text-cream border-[3px] border-ink shadow-pixel-sm px-4 py-2 disabled:opacity-40"
           >
-            <Send className="w-3.5 h-3.5" />
-            Executar
+            {phase === "planning" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Route className="w-3.5 h-3.5" />
+            )}
+            {phase === "planning" ? "Montando rota…" : "Montar rota"}
           </button>
+        ) : phase === "preview" ? (
+          <>
+            <button
+              onClick={confirmPreview}
+              className="text-xs font-bold inline-flex items-center gap-1.5 bg-coral text-cream border-[3px] border-ink shadow-pixel-sm px-4 py-2"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Confirmar e executar
+            </button>
+            <button
+              onClick={discardPreview}
+              className="text-xs font-bold inline-flex items-center gap-1.5 bg-paper text-ink border-2 border-ink px-3 py-2"
+            >
+              Descartar
+            </button>
+          </>
         ) : (
           <button
             onClick={cancelMission}
-            className="inline-flex items-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-bold rounded-full px-4 py-2 transition-colors"
+            className="text-xs font-bold inline-flex items-center gap-1.5 bg-ink text-cream border-[3px] border-ink px-4 py-2"
           >
             <X className="w-3.5 h-3.5" />
             Cancelar
@@ -269,43 +432,120 @@ export default function MissionComposer() {
         <button
           onClick={() => setShowAdjust(v => !v)}
           disabled={missionBusy}
-          className={`inline-flex items-center gap-1.5 text-xs font-bold rounded-full px-3 py-2 transition-colors disabled:opacity-40 ${
-            showAdjust ? "bg-cyan-500/20 text-cyan-100" : "bg-white/5 hover:bg-white/10 text-dim"
+          className={`text-xs font-bold border-2 border-ink px-3 py-2 disabled:opacity-40 ${
+            showAdjust ? "bg-navy text-cream" : "bg-paper text-ink"
           }`}
         >
-          <Settings2 className="w-3.5 h-3.5" />
           Ajustar rota
         </button>
 
-        {decision && !running && (
-          <span className="text-[11px] text-dim">
-            Roteado por {decision.strategy === "rules" ? "regras" : "IA"} ({Math.round(decision.confidence * 100)}%)
+        {decision && phase === "preview" && (
+          <span className="text-[11px] text-muted-ink">
+            via {decision.strategy === "rules" ? "regras" : "IA"} ({Math.round(decision.confidence * 100)}%)
           </span>
         )}
       </div>
 
-      {/* Progresso da missão em tempo real */}
-      {running && liveRoute.length > 0 && (
-        <div className="mt-3 rounded-xl bg-field border border-line p-2.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {liveRoute.map((step, idx) => {
-              const phase = stepPhase(idx)
+      {/* Preview da rota */}
+      {phase === "preview" && previewRoute.length > 0 && (
+        <div className="mt-3 border-[3px] border-ink bg-paper p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-ink mb-2">
+            Preview da rota
+          </div>
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            {previewRoute.map((step, idx) => {
+              const agent = agents.find(a => a.id === step.agentId)
               return (
-                <div key={`${step.sectorId}-${idx}`} className="flex items-center gap-1.5">
-                  <div
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] border transition-colors ${
-                      phase === "done"
-                        ? "bg-emerald-500/15 text-emerald-200 border-emerald-400/25"
-                        : phase === "running"
-                          ? "bg-amber-500/15 text-amber-200 border-amber-400/35"
-                          : "bg-white/5 text-faint border-white/10"
-                    }`}
-                  >
-                    {phase === "done" && <Check className="w-3 h-3" />}
-                    {phase === "running" && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {sectorNameById(step.sectorId, sectors)}
+                <div key={`${step.sectorId}-${idx}`} className="flex items-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 border-2 border-ink bg-cream px-2 py-1">
+                    {agent && <RobotAvatar color={agent.color} size="sm" showBubble={false} />}
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold text-ink">
+                        {idx + 1}. {sectorNameById(step.sectorId, sectors)}
+                      </div>
+                      <div className="text-[9px] text-muted-ink truncate max-w-[8rem]">
+                        {agent?.name || "sem agente"}
+                      </div>
+                    </div>
                   </div>
-                  {idx < liveRoute.length - 1 && <span className="text-faint text-[10px]">→</span>}
+                  {idx < previewRoute.length - 1 && <span className="text-muted-ink text-xs">→</span>}
+                </div>
+              )
+            })}
+          </div>
+
+          {designNeedsHf && (
+            <div className="mt-2 border-2 border-coral bg-coral/10 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
+              <strong>Design / FLUX:</strong> a rota inclui Design, mas o provedor ativo não é Hugging Face
+              {hfKey ? "" : " (ou falta o token HF)"}. A imagem pode sair em <em>simulação</em>.
+              Para FLUX real, salve um token HF em API ou troque o modelo do agente de Design para texto.
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-ink mt-2">
+            Entre etapas o bastão leva só um <strong>resumo</strong>, não o texto inteiro.
+          </p>
+        </div>
+      )}
+
+      {/* Pipeline ao vivo */}
+      {phase === "running" && liveRoute.length > 0 && (
+        <div className="mt-3 border-[3px] border-ink bg-navy text-cream p-3 overflow-hidden relative">
+          <div
+            className="absolute inset-0 opacity-20 pointer-events-none"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(45,143,111,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(45,143,111,0.5) 1px, transparent 1px)",
+              backgroundSize: "16px 16px",
+            }}
+          />
+          <div className="relative text-[10px] font-bold uppercase tracking-wider text-coral mb-2">
+            Pipeline ao vivo
+          </div>
+          <div className="relative flex items-end gap-2 flex-wrap">
+            {liveRoute.map((step, idx) => {
+              const sp = stepPhase(idx)
+              const agent = agents.find(a => a.id === step.agentId)
+              return (
+                <div key={`${step.sectorId}-${idx}`} className="flex items-end gap-2">
+                  <div className="flex flex-col items-center gap-1.5">
+                    {agent ? (
+                      <RobotAvatar
+                        color={agent.color}
+                        working={sp === "running"}
+                        size="md"
+                        bubbleText={
+                          sp === "running" ? "trabalhando…" :
+                          sp === "done" ? "ok!" :
+                          undefined
+                        }
+                        showBubble={sp !== "pending"}
+                      />
+                    ) : (
+                      <div className="w-9 h-9 border-2 border-cream/40" />
+                    )}
+                    <div
+                      className={`inline-flex items-center gap-1 border-2 border-ink px-2 py-0.5 text-[10px] font-bold ${
+                        sp === "done"
+                          ? "bg-grid text-ink"
+                          : sp === "running"
+                            ? "bg-coral text-cream"
+                            : "bg-paper text-ink"
+                      }`}
+                    >
+                      {sp === "done" && <Check className="w-3 h-3" />}
+                      {sp === "running" && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {sectorNameById(step.sectorId, sectors)}
+                    </div>
+                    {sp === "running" && (
+                      <div className="w-16 h-1 bg-cream/20 overflow-hidden border border-cream/30">
+                        <div className="h-full bg-coral animate-pulse" style={{ width: "70%" }} />
+                      </div>
+                    )}
+                  </div>
+                  {idx < liveRoute.length - 1 && (
+                    <span className="text-cream/50 text-xs mb-6">→</span>
+                  )}
                 </div>
               )
             })}
@@ -313,51 +553,47 @@ export default function MissionComposer() {
         </div>
       )}
 
-      {/* Resultado da última missão */}
-      {lastResult && !running && (
-        <div className="mt-3 rounded-xl bg-field border border-line p-2.5">
+      {lastResult && phase === "idle" && (
+        <div className="mt-3 border-2 border-ink bg-cream p-2.5">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] uppercase tracking-widest text-dim font-bold">Resultado da missão</span>
+            <span className="font-bold text-[11px] text-ink">Resultado</span>
             <div className="flex items-center gap-1">
-              <button onClick={copyResult} className="p-1.5 rounded-lg hover:bg-white/10 text-dim hover:text-white transition-colors" title="Copiar resultado">
+              <button onClick={copyResult} className="p-1.5 border border-ink hover:bg-paper" title="Copiar">
                 <Copy className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => setLastResult(null)} className="p-1.5 rounded-lg hover:bg-white/10 text-dim hover:text-white transition-colors" title="Fechar">
+              <button onClick={() => setLastResult(null)} className="p-1.5 border border-ink hover:bg-paper" title="Fechar">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-          <div className="max-h-40 overflow-y-auto text-xs text-bright/85 whitespace-pre-wrap leading-relaxed">
+          <div className="max-h-40 overflow-y-auto text-xs text-ink whitespace-pre-wrap leading-relaxed">
             {lastResult}
           </div>
         </div>
       )}
 
-      {/* Ajuste manual de rota (opcional) */}
       {showAdjust && !missionBusy && (
-        <div className="mt-3 rounded-xl bg-field border border-line p-2.5">
-          <div className="text-[11px] text-dim mb-2">
-            Monte a rota manualmente. Se ficar vazia, o roteamento automático decide por você.
+        <div className="mt-3 border-2 border-ink bg-cream p-2.5">
+          <div className="text-[11px] text-muted-ink mb-2">
+            Monte a rota manualmente. Vazia = roteamento automático no “Montar rota”.
           </div>
-
           {manualRoute.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {manualRoute.map((step, idx) => (
-                <div key={`${step.sectorId}-${idx}`} className="inline-flex items-center gap-1 bg-cyan-400/10 text-cyan-100/90 rounded-full px-2 py-1 text-[11px] border border-cyan-300/10">
+                <div key={`${step.sectorId}-${idx}`} className="inline-flex items-center gap-1 bg-paper border-2 border-ink px-2 py-1 text-[11px]">
                   <span>{idx + 1}. {sectorNameById(step.sectorId, sectors)}</span>
-                  <button onClick={() => removeManualStep(idx)} className="text-white/50 hover:text-white">
+                  <button onClick={() => removeManualStep(idx)} className="text-coral">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
               ))}
             </div>
           )}
-
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={manualSectorId}
               onChange={(e) => setManualSectorId(e.target.value)}
-              className="bg-field border border-line rounded-lg px-2 py-1 text-xs text-bright"
+              className="bg-paper border-2 border-ink px-2 py-1 text-xs text-ink"
             >
               {sectors.map(sector => (
                 <option key={sector.id} value={sector.id}>{sector.name}</option>
@@ -365,11 +601,11 @@ export default function MissionComposer() {
             </select>
             <button
               onClick={addManualStep}
-              className="bg-cyan-400/12 hover:bg-cyan-300/18 text-cyan-100 text-xs font-bold rounded-full px-3 py-1.5"
+              className="text-[11px] font-bold bg-navy text-cream border-2 border-ink px-3 py-1.5"
             >
-              Adicionar etapa
+              + Etapa
             </button>
-            <span className="text-[11px] text-faint truncate">{routeSummary ? `Fluxo: ${routeSummary}` : "Rota automática ativa"}</span>
+            <span className="text-[11px] text-muted-ink truncate">{routeSummary || "Rota automática"}</span>
           </div>
         </div>
       )}

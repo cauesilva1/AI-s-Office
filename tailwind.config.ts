@@ -10,14 +10,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Tokens do tema tech dark do Agent Office
-        panel: "#101a29",
-        panel2: "#0d1522",
-        field: "#0f1724",
-        line: "rgba(103, 232, 249, 0.15)",
-        bright: "#e6f4ff",
-        dim: "rgba(230, 244, 255, 0.55)",
-        faint: "rgba(230, 244, 255, 0.32)",
+        navy: {
+          DEFAULT: "#0b1a2b",
+          2: "#12253a",
+        },
+        cream: {
+          DEFAULT: "#f3efe4",
+          2: "#ebe4d4",
+        },
+        ink: "#1a1a1a",
+        coral: "#e2554a",
+        paper: "#fffdf8",
+        grid: "#2d8f6f",
+        "muted-ink": "#5a564c",
+        // legado / utilitários de formulário
+        panel: "#0b1a2b",
+        panel2: "#12253a",
+        field: "#fffdf8",
+        line: "#1a1a1a",
+        bright: "#f3efe4",
+        dim: "#5a564c",
+        faint: "#8a8478",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -53,13 +66,19 @@ const config: Config = {
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "0px",
+        md: "0px",
+        sm: "0px",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        display: ["Baloo 2", "system-ui", "sans-serif"],
+        sans: ["IBM Plex Mono", "ui-monospace", "monospace"],
+        mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
+        pixel: ["Press Start 2P", "ui-monospace", "monospace"],
+        display: ["Press Start 2P", "ui-monospace", "monospace"],
+      },
+      boxShadow: {
+        pixel: "4px 4px 0 #1a1a1a",
+        "pixel-sm": "2px 2px 0 #1a1a1a",
       },
     },
   },

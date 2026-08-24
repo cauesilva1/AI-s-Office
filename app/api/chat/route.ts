@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { isImageModel } from "@/lib/game/constants"
+import { AIProvider } from "@/lib/ai/providers"
+import { runChatCompletion } from "@/lib/ai/chatClient"
+import { resolveApiKey, serverKeyFor } from "@/lib/ai/serverKeys"
+import { buildAgentSystemPrompt } from "@/lib/ai/officeMode"
 
 const MOCK_RESPONSES = [
   "Análise concluída! Identifiquei 3 pontos de otimização no código. Sugiro refatorar o módulo de autenticação para usar JWT tokens com refresh rotation.",
@@ -35,7 +39,7 @@ function safeParseRouterPayload(raw: string): { sectorId: string; confidence: nu
 }
 
 function mockDesignImage(prompt: string): string {
-  const safe = prompt.replace(/[<>&]/g, " ").slice(0, 72)
+  const safe = prompt.replace(/[<>&']/g, " ").slice(0, 72)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400">
     <defs>
       <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
@@ -44,7 +48,7 @@ function mockDesignImage(prompt: string): string {
       </linearGradient>
     </defs>
     <rect fill="url(#g)" width="100%" height="100%"/>
-    <text x="50%" y="42%" fill="#a78bfa" text-anchor="middle" font-family="Inter,sans-serif" font-size="22" font-weight="700">FLUX.1-dev · simulação</text>
+    <text x="50%" y="42%" fill="#a78bfa" text-anchor="middle" font-family="Inter,sans-serif" font-size="22" font-weight="700">FLUX · simulação</text>
     <text x="50%" y="58%" fill="#e6f4ff" text-anchor="middle" font-family="Inter,sans-serif" font-size="13">${safe}</text>
   </svg>`
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
@@ -111,16 +115,29 @@ async function generateImage(model: string, prompt: string, hfToken: string): Pr
     }
   }
 
-  return { error: lastErr || "Nenhum provedor gerou a imagem. Tente FLUX.1-schnell ou verifique o token." }
+  return { error: lastErr || "Nenhum provedor gerou a imagem. Tente FLUX.1-schnell ou verifique o token HF." }
+}
+
+function resolveProvider(raw: unknown): AIProvider {
+  const p = String(raw || "mock")
+  const allowed: AIProvider[] = ["mock", "huggingface", "openai", "anthropic", "groq", "openrouter"]
+  return (allowed.includes(p as AIProvider) ? p : "mock") as AIProvider
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { agentName, agentRole, sectorName, prompt, history, provider, hfToken, model, taskType, sectors } = body
+    const {
+      agentName, agentRole, sectorName, sectorId, prompt, history, model, taskType, sectors,
+      ensembleSlot,
+    } = body
+    const provider = resolveProvider(body.provider)
+    const clientKey = String(body.apiKey || body.hfToken || "")
+    const resolved = resolveApiKey(provider, clientKey)
+    const apiKey = resolved.apiKey
 
     if (taskType === "router") {
-      if (provider !== "huggingface" || !hfToken) {
+      if (provider === "mock" || !apiKey) {
         return NextResponse.json({
           sectorId: "research",
           confidence: 0.45,
@@ -140,55 +157,57 @@ export async function POST(req: NextRequest) {
         `Tarefa do usuário: ${prompt}`,
       ].join("\n")
 
-      try {
-        const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${hfToken}`,
-          },
-          body: JSON.stringify({
-            model: model || "meta-llama/Llama-3.1-8B-Instruct",
-            messages: [{ role: "user", content: routerPrompt }],
-            max_tokens: 220,
-          }),
-        })
-        const data = await response.json()
-        const raw = String(data?.choices?.[0]?.message?.content || "")
-        const parsed = safeParseRouterPayload(raw)
-        if (!parsed) {
-          return NextResponse.json({
-            sectorId: "research",
-            confidence: 0.5,
-            reason: "Resposta inválida do roteador IA; fallback para Pesquisa.",
-          })
-        }
-        return NextResponse.json({
-          sectorId: parsed.sectorId,
-          confidence: parsed.confidence,
-          reason: parsed.reason,
-        })
-      } catch {
+      const routerModel =
+        provider === "huggingface" ? (model || "meta-llama/Llama-3.1-8B-Instruct")
+        : provider === "openai" ? "gpt-4o-mini"
+        : provider === "anthropic" ? "claude-3-5-haiku-latest"
+        : provider === "groq" ? "llama-3.3-70b-versatile"
+        : provider === "openrouter" ? "poolside/laguna-s-2.1:free"
+        : "meta-llama/Llama-3.1-8B-Instruct"
+
+      const result = await runChatCompletion({
+        provider,
+        apiKey,
+        model: routerModel,
+        messages: [{ role: "user", content: routerPrompt }],
+        maxTokens: 220,
+      })
+
+      if (result.error || !result.text) {
         return NextResponse.json({
           sectorId: "research",
           confidence: 0.5,
           reason: "Falha no roteador IA; fallback para Pesquisa.",
         })
       }
+
+      const parsed = safeParseRouterPayload(result.text)
+      if (!parsed) {
+        return NextResponse.json({
+          sectorId: "research",
+          confidence: 0.5,
+          reason: "Resposta inválida do roteador IA; fallback para Pesquisa.",
+        })
+      }
+      return NextResponse.json(parsed)
     }
 
     const wantsImage = isImageModel(String(model || ""))
 
     if (wantsImage) {
       const visualPrompt = imagePromptFrom(String(prompt || ""))
-      if (provider !== "huggingface" || !hfToken) {
+      // Imagem: sempre tenta HF (server env ou client)
+      const hfResolved = resolveApiKey("huggingface", clientKey)
+      const hfKey = hfResolved.apiKey || serverKeyFor("huggingface")
+
+      if (!hfKey) {
         return NextResponse.json({
-          text: `[simulação] Conceito visual gerado para: ${visualPrompt.slice(0, 140)}`,
+          text: `Imagem (FLUX) precisa de Hugging Face. Provedor atual: ${provider}. Conceito: ${visualPrompt.slice(0, 120)}`,
           imageUrl: mockDesignImage(visualPrompt),
         })
       }
 
-      const generated = await generateImage(String(model), visualPrompt, hfToken)
+      const generated = await generateImage(String(model), visualPrompt, hfKey)
       if (generated.error || !generated.imageUrl) {
         return NextResponse.json({ error: generated.error || "Falha ao gerar imagem." }, { status: 200 })
       }
@@ -198,58 +217,44 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    if (provider === "huggingface" && hfToken) {
-      const systemPrompt = `Você é ${agentName}, ${agentRole} do setor ${sectorName || "Geral"} no Agent Office — um escritório virtual onde várias IAs trabalham em conjunto. Responda em português do Brasil, de forma profissional e direta. Quando receber um "bastão" (contexto vindo de outro agente), continue o trabalho a partir dele sem repetir o que já foi feito.`
+    if (provider !== "mock" && apiKey) {
+      const systemPrompt = buildAgentSystemPrompt({
+        provider,
+        sectorId: typeof sectorId === "string" ? sectorId : undefined,
+        sectorName: typeof sectorName === "string" ? sectorName : undefined,
+        agentName: String(agentName || "Agente"),
+        agentRole: String(agentRole || "Assistente"),
+        ensembleSlot: typeof ensembleSlot === "number" ? ensembleSlot : undefined,
+      })
 
       const messages: ChatMessage[] = [
         { role: "system", content: systemPrompt },
-        // Mantém as últimas trocas para dar contexto sem estourar o limite de tokens
         ...(Array.isArray(history) ? history.slice(-12).map((m: ChatMessage) => ({ role: m.role, content: m.content })) : []),
         { role: "user", content: prompt },
       ]
 
-      try {
-        const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${hfToken}`,
-          },
-          body: JSON.stringify({
-            model: model || "meta-llama/Llama-3.1-8B-Instruct",
-            messages,
-            max_tokens: 1000,
-          }),
-        })
+      const result = await runChatCompletion({
+        provider,
+        apiKey,
+        model: model || "gpt-4o-mini",
+        messages,
+        maxTokens: 1000,
+      })
 
-        if (!response.ok) {
-          const err = await response.text()
-          let friendly = `Erro do modelo ${model}`
-          if (response.status === 401) friendly = "Token da Hugging Face inválido ou expirado. Verifique em Config."
-          else if (response.status === 402) friendly = "Créditos da Hugging Face esgotados para este mês."
-          else if (response.status === 404) friendly = `Modelo ${model} não está disponível no router da Hugging Face. Troque o modelo deste agente.`
-          else if (response.status === 429) friendly = "Limite de requisições atingido. Aguarde alguns segundos e tente de novo."
-          else friendly = `Erro do modelo ${model}: ${err.slice(0, 200)}`
-          return NextResponse.json({ error: friendly }, { status: 200 })
-        }
-
-        const data = await response.json()
-        let text = data.choices?.[0]?.message?.content || "(sem resposta)"
-        // Modelos de raciocínio (ex.: DeepSeek R1) devolvem <think>...</think> antes da resposta
-        text = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim() || "(sem resposta)"
-        return NextResponse.json({ text })
-      } catch (err) {
-        return NextResponse.json({ error: "Falha na conexão com a Hugging Face. Verifique sua internet e o token." }, { status: 200 })
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: 200 })
       }
+      return NextResponse.json({ text: result.text })
     }
 
-    // Modo simulação (sem token)
-    const hash = prompt.split("").reduce((a: number, b: string) => a + b.charCodeAt(0), 0)
+    const hash = String(prompt || "").split("").reduce((a: number, b: string) => a + b.charCodeAt(0), 0)
     const response = MOCK_RESPONSES[hash % MOCK_RESPONSES.length]
     await new Promise(r => setTimeout(r, 800 + Math.random() * 1200))
 
-    return NextResponse.json({ text: `[simulação — configure seu token HF em CONFIG] ${response}` })
-  } catch (error) {
+    return NextResponse.json({
+      text: `[simulação — configure key no browser ou env do servidor] ${response}`,
+    })
+  } catch {
     return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 })
   }
 }
