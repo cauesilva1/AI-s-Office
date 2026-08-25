@@ -37,8 +37,8 @@ export const SECTOR_DEFAULTS: Record<Exclude<AIProvider, "huggingface" | "mock">
     ],
     design: [
       "google/gemma-4-31b-it:free",
-      "thinkingmachines/inkling:free",
-      "google/gemma-4-26b-a4b-it:free",
+      "bytedance-seed/seedream-5-0-lite",
+      "alibaba/wan-3.0",
     ],
     research: [
       "nvidia/nemotron-3-ultra-550b-a55b:free",

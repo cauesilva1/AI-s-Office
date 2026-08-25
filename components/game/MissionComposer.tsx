@@ -4,17 +4,43 @@ import { useMemo, useRef, useState } from "react"
 import { useGameStore } from "@/store/gameStore"
 import { Check, Copy, Loader2, Send, Sparkles, X, Route, Play } from "lucide-react"
 import { autoRoute, buildPipeline, RouteDecision } from "@/lib/orchestrator/hybridRouter"
-import { dispatchSectorEnsemble, dispatchStep } from "@/lib/orchestrator/dispatch"
-import { looksLikeImageRequest, routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
-import { MissionStep } from "@/lib/game/types"
+import { dispatchSectorEnsemble, dispatchStep, dispatchMediaStep } from "@/lib/orchestrator/dispatch"
+import { detectMediaModality, isMediaModality, routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
+import type { MediaModality } from "@/lib/ai/mediaModality"
+import { MissionStep, Agent } from "@/lib/game/types"
 import RobotAvatar from "@/components/office/RobotAvatar"
 import { activeApiKey, providerNeedsKey } from "@/lib/ai/providers"
-import { isProviderAuthError } from "@/lib/ai/remapModels"
 import { isImageModel } from "@/lib/game/constants"
+import { isProviderAuthError } from "@/lib/ai/remapModels"
 import { isEnsembleProvider } from "@/lib/ai/officeMode"
 
 function sectorNameById(id: string, sectors: { id: string; name: string }[]): string {
   return sectors.find(s => s.id === id)?.name || id
+}
+
+function pickDesignMediaAgent(
+  agents: Agent[],
+  modality: Exclude<MediaModality, "text">,
+): Agent | undefined {
+  const designAgents = agents.filter(a => a.sectorId === "design")
+  if (modality === "image") {
+    return (
+      designAgents.find(a => /imagem/i.test(a.role) || isImageModel(a.model)) ||
+      designAgents[1] ||
+      designAgents[0]
+    )
+  }
+  if (modality === "video") {
+    return designAgents.find(a => /v[ií]deo/i.test(a.role)) || designAgents[2] || designAgents[0]
+  }
+  return designAgents.find(a => /[aá]udio|som/i.test(a.role)) || designAgents[0]
+}
+
+function mediaLabel(modality: MediaModality): string {
+  if (modality === "image") return "imagem"
+  if (modality === "video") return "vídeo"
+  if (modality === "audio") return "áudio"
+  return "texto"
 }
 
 type StepPhase = "pending" | "running" | "done"
@@ -60,7 +86,6 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
   const apiKey = activeApiKey(aiProvider, apiKeys, hfToken)
   const hasServerKey = aiProvider !== "mock" && serverProviders.includes(aiProvider)
   const needsToken = providerNeedsKey(aiProvider, apiKeys, hfToken) && !hasServerKey
-  const hfKey = activeApiKey("huggingface", apiKeys, hfToken) || (serverProviders.includes("huggingface") ? "server" : "")
 
   const routeSummary = useMemo(
     () => manualRoute.map(step => sectorNameById(step.sectorId, sectors)).join(" → "),
@@ -68,24 +93,9 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
   )
 
   const previewHasDesign = routeIncludesDesign(previewRoute)
-  // Aviso forte só se a rota ainda aponta a modelo de imagem sem HF
-  const designHasImageModel = previewRoute.some(step => {
-    const agent = agents.find(a => a.id === step.agentId)
-    return Boolean(agent && isImageModel(agent.model))
-  })
-  const designNeedsHf = previewHasDesign && designHasImageModel && !hfKey
-  // Dica: pedido de imagem com Design em texto (OR/solo) sem HF
-  const designTextOnlyTip =
-    previewHasDesign &&
-    !designHasImageModel &&
-    !hfKey &&
-    aiProvider !== "huggingface" &&
-    looksLikeImageRequest(prompt)
-  const canHybridFlux =
-    previewHasDesign &&
-    Boolean(hfKey) &&
-    aiProvider !== "huggingface" &&
-    looksLikeImageRequest(prompt)
+  const mediaModality = detectMediaModality(prompt)
+  const previewNeedsMedia = previewHasDesign && isMediaModality(mediaModality)
+  const mediaNeedsKey = previewNeedsMedia && needsToken
 
   const stepPhase = (idx: number): StepPhase => {
     if (idx < stepIndex) return "done"
@@ -130,7 +140,10 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
 
     const mission = createMission({
       prompt: content,
-      strategy: routeDecision?.strategy || "manual_override",
+      strategy:
+        routeDecision?.strategy === "fallback"
+          ? "llm"
+          : routeDecision?.strategy || "manual_override",
       primarySectorId: validRoute[0]?.sectorId || "research",
       route: validRoute,
     })
@@ -168,6 +181,68 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
           timestamp: Date.now(),
           handoffFrom: i === 0 ? undefined : "Pipeline automático",
         })
+
+        const missionMedia = detectMediaModality(content)
+
+        if (step.sectorId === "design" && isMediaModality(missionMedia)) {
+          const modality = missionMedia as Exclude<MediaModality, "text">
+          const mediaAgent = pickDesignMediaAgent(agents, modality) || agent
+          markWorking(mediaAgent.id)
+          let result: { text: string; imageUrl?: string; videoUrl?: string; audioUrl?: string }
+          try {
+            addFeedItem({
+              missionId: mission.id,
+              stage: i + 1,
+              agentId: mediaAgent.id,
+              kind: "info",
+              text: `Gerando ${mediaLabel(modality)} com ${aiProvider}…`,
+            })
+            result = await dispatchMediaStep({
+              step,
+              agent: mediaAgent,
+              sectorName,
+              missionPrompt: content,
+              previousResult,
+              provider: aiProvider,
+              apiKey,
+              signal: abortRef.current?.signal,
+              modality,
+            })
+          } finally {
+            markIdle(mediaAgent.id)
+          }
+
+          if (cancelRef.current) throw new Error("Missão cancelada pelo usuário")
+
+          addChatMessage(mediaAgent.id, {
+            role: "assistant",
+            content: result.text,
+            timestamp: Date.now(),
+            imageUrl: result.imageUrl,
+            videoUrl: result.videoUrl,
+            audioUrl: result.audioUrl,
+          })
+          addAgentLog(
+            mediaAgent.id,
+            result.imageUrl || result.videoUrl || result.audioUrl
+              ? `${mediaLabel(modality)} gerada`
+              : `Design · sem ${mediaLabel(modality)}`,
+          )
+          addFeedItem({
+            missionId: mission.id,
+            stage: i + 1,
+            agentId: mediaAgent.id,
+            kind: "message",
+            text: result.imageUrl || result.videoUrl
+              ? `${mediaLabel(modality)} gerada · etapa ${i + 1}: ${sectorName}`
+              : `Design · etapa ${i + 1}`,
+          })
+          previousResult = result.imageUrl || result.videoUrl
+            ? `${result.text}\n\n[${mediaLabel(modality)} gerada pelo Design]`
+            : result.text
+          consolidated += `\n\n[Etapa ${i + 1} - ${sectorName}]\n${result.text}`
+          continue
+        }
 
         const sectorTeam = isEnsembleProvider(aiProvider)
           ? agents.filter(a => a.sectorId === step.sectorId)
@@ -246,69 +321,6 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
             : `Concluiu etapa ${i + 1}: ${sectorName}`,
         })
 
-        // Híbrido: OR/solo + pedido de imagem + key HF salva → gera FLUX de verdade
-        if (
-          step.sectorId === "design" &&
-          looksLikeImageRequest(content) &&
-          !result.imageUrl &&
-          aiProvider !== "huggingface"
-        ) {
-          const hfApiKey = activeApiKey("huggingface", apiKeys, hfToken)
-          if (hfApiKey) {
-            markWorking(agent.id)
-            try {
-              addFeedItem({
-                missionId: mission.id,
-                stage: i + 1,
-                agentId: agent.id,
-                kind: "info",
-                text: "Gerando pixels com FLUX (Hugging Face)…",
-              })
-              const fluxRes = await fetch("/api/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                signal: abortRef.current?.signal,
-                body: JSON.stringify({
-                  agentName: "FLUX",
-                  agentRole: "Geração de imagem",
-                  sectorName: "Design",
-                  sectorId: "design",
-                  prompt: `${content}\n\nBrief do Design:\n${result.text.slice(0, 600)}`,
-                  history: [],
-                  provider: "huggingface",
-                  apiKey: hfApiKey,
-                  hfToken: hfApiKey,
-                  model: "black-forest-labs/FLUX.1-schnell",
-                }),
-              })
-              const fluxData = await fluxRes.json()
-              if (fluxData?.imageUrl) {
-                result = {
-                  ...result,
-                  text: `${result.text}\n\n[FLUX] ${fluxData.text || "Imagem gerada."}`,
-                  imageUrl: fluxData.imageUrl,
-                }
-                addChatMessage(agent.id, {
-                  role: "assistant",
-                  content: "Imagem FLUX gerada com a key Hugging Face.",
-                  timestamp: Date.now(),
-                  imageUrl: fluxData.imageUrl,
-                })
-              } else if (fluxData?.error) {
-                addFeedItem({
-                  missionId: mission.id,
-                  stage: i + 1,
-                  agentId: agent.id,
-                  kind: "info",
-                  text: `FLUX: ${String(fluxData.error).slice(0, 120)}`,
-                })
-              }
-            } finally {
-              markIdle(agent.id)
-            }
-          }
-        }
-
         previousResult = result.imageUrl
           ? `${result.text}\n\n[imagem gerada pelo Design]`
           : result.text
@@ -364,10 +376,11 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
         routeDecision = await autoRoute({
           prompt: content,
           sectors,
-          provider: aiProvider,
+          activeProvider: aiProvider,
           apiKey,
+          serverHasKey: hasServerKey,
         })
-        route = buildPipeline(routeDecision.primarySectorId, agents)
+        route = buildPipeline(routeDecision, agents)
         setDecision(routeDecision)
       }
 
@@ -516,7 +529,8 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
 
         {decision && phase === "preview" && (
           <span className="text-[11px] text-muted-ink">
-            via {decision.strategy === "rules" ? "regras" : "IA"} ({Math.round(decision.confidence * 100)}%)
+            via roteador IA ({Math.round(decision.confidence * 100)}%)
+            {decision.routerModel ? ` · ${decision.routerModel.split("/").pop()}` : ""}
           </span>
         )}
       </div>
@@ -549,21 +563,11 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
             })}
           </div>
 
-          {designNeedsHf && (
+          {previewNeedsMedia && (
             <div className="mt-2 border-2 border-coral bg-coral/10 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
-              <strong>Design / FLUX:</strong> a rota usa modelo de imagem, mas falta token Hugging Face.
-              Salve a key HF no painel API (pode voltar ao OpenRouter depois).
-            </div>
-          )}
-          {!designNeedsHf && designTextOnlyTip && (
-            <div className="mt-2 border-2 border-ink/20 bg-cream-2 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
-              <strong>Imagem:</strong> com OpenRouter o Design entrega brief visual em texto.
-              Para gerar pixels (FLUX), salve também uma key HF: abra API → HF → cole → Salvar → volte ao OR.
-            </div>
-          )}
-          {canHybridFlux && (
-            <div className="mt-2 border-2 border-ink/20 bg-cream-2 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
-              <strong>FLUX híbrido:</strong> key HF detectada — após o Design, a missão gera a imagem de verdade.
+              <strong>{mediaLabel(mediaModality).charAt(0).toUpperCase() + mediaLabel(mediaModality).slice(1)}:</strong>{" "}
+              gerada pelo provedor ativo ({aiProvider}) na etapa Design.
+              {mediaNeedsKey && " Configure a API key no painel para sair da simulação."}
             </div>
           )}
           <p className="text-[10px] text-muted-ink mt-2">

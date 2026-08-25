@@ -2,8 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { isImageModel } from "@/lib/game/constants"
 import { AIProvider } from "@/lib/ai/providers"
 import { runChatCompletion } from "@/lib/ai/chatClient"
-import { resolveApiKey, serverKeyFor } from "@/lib/ai/serverKeys"
+import { resolveApiKey } from "@/lib/ai/serverKeys"
 import { buildAgentSystemPrompt } from "@/lib/ai/officeMode"
+import {
+  buildRouterPrompt,
+  parseRouterResponse,
+  routerModelForProvider,
+} from "@/lib/ai/routerConfig"
+import {
+  detectMediaModality,
+  isMediaModality,
+  type MediaModality,
+} from "@/lib/ai/mediaModality"
+import { generateMedia, resolveMediaModel } from "@/lib/ai/mediaGenerate"
 
 const MOCK_RESPONSES = [
   "Análise concluída! Identifiquei 3 pontos de otimização no código. Sugiro refatorar o módulo de autenticação para usar JWT tokens com refresh rotation.",
@@ -21,21 +32,8 @@ interface ChatMessage {
   content: string
 }
 
-function safeParseRouterPayload(raw: string): { sectorId: string; confidence: number; reason: string } | null {
-  try {
-    const cleaned = raw.replace(/```json|```/g, "").trim()
-    const firstBrace = cleaned.indexOf("{")
-    const lastBrace = cleaned.lastIndexOf("}")
-    const jsonSlice = firstBrace >= 0 && lastBrace > firstBrace ? cleaned.slice(firstBrace, lastBrace + 1) : cleaned
-    const parsed = JSON.parse(jsonSlice)
-    return {
-      sectorId: String(parsed?.sectorId || "research"),
-      confidence: Math.max(0, Math.min(1, Number(parsed?.confidence || 0.6))),
-      reason: String(parsed?.reason || "Classificação por IA."),
-    }
-  } catch {
-    return null
-  }
+function safeParseRouterPayload(raw: string) {
+  return parseRouterResponse(raw)
 }
 
 function imagePromptFrom(prompt: string): string {
@@ -49,57 +47,13 @@ function imagePromptFrom(prompt: string): string {
   return cleaned.slice(0, 800) || prompt.slice(0, 800)
 }
 
-async function generateImage(model: string, prompt: string, hfToken: string): Promise<{ imageUrl?: string; error?: string }> {
-  const endpoints = [
-    `https://router.huggingface.co/hf-inference/models/${model}`,
-    `https://router.huggingface.co/fal-ai/${model}`,
-    `https://router.huggingface.co/replicate/${model}`,
-    `https://router.huggingface.co/together/${model}`,
-  ]
-  let lastErr = ""
-
-  for (const url of endpoints) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${hfToken}`,
-          "Content-Type": "application/json",
-          Accept: "image/png",
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: { num_inference_steps: 28 },
-        }),
-      })
-
-      if (!response.ok) {
-        lastErr = await response.text()
-        continue
-      }
-
-      const contentType = response.headers.get("content-type") || ""
-      if (contentType.includes("application/json")) {
-        const data = await response.json()
-        const remoteUrl = data.url || data.image_url || data.images?.[0]?.url
-        if (typeof remoteUrl === "string") return { imageUrl: remoteUrl }
-        lastErr = JSON.stringify(data).slice(0, 220)
-        continue
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer())
-      if (buffer.length < 32) {
-        lastErr = "Resposta de imagem vazia"
-        continue
-      }
-      const mime = contentType.includes("jpeg") ? "image/jpeg" : contentType.includes("webp") ? "image/webp" : "image/png"
-      return { imageUrl: `data:${mime};base64,${buffer.toString("base64")}` }
-    } catch (err) {
-      lastErr = err instanceof Error ? err.message : "Falha no provedor de imagem"
-    }
+function resolveMediaFromBody(body: Record<string, unknown>, prompt: string): MediaModality {
+  const raw = body.mediaModality
+  const allowed: MediaModality[] = ["text", "image", "video", "audio"]
+  if (typeof raw === "string" && allowed.includes(raw as MediaModality)) {
+    return raw as MediaModality
   }
-
-  return { error: lastErr || "Nenhum provedor gerou a imagem. Tente FLUX.1-schnell ou verifique o token HF." }
+  return detectMediaModality(prompt)
 }
 
 function resolveProvider(raw: unknown): AIProvider {
@@ -130,36 +84,31 @@ export async function POST(req: NextRequest) {
       }
 
       const sectorList = Array.isArray(sectors)
-        ? sectors.map((s: { id: string; name: string }) => `${s.id}: ${s.name}`).join(", ")
-        : "engineering, design, research, data, devops, growth"
-      const routerPrompt = [
-        "Você é um roteador de tarefas para um escritório de IAs.",
-        `Setores válidos: ${sectorList}.`,
-        "Retorne apenas JSON válido no formato:",
-        '{"sectorId":"engineering","confidence":0.8,"reason":"..."}',
-        "Escolha o setor principal para iniciar o trabalho.",
-        `Tarefa do usuário: ${prompt}`,
-      ].join("\n")
+        ? sectors as Array<{ id: string; name: string }>
+        : [
+            { id: "engineering", name: "Engenharia" },
+            { id: "design", name: "Design" },
+            { id: "research", name: "Pesquisa" },
+            { id: "data", name: "Dados" },
+            { id: "devops", name: "DevOps" },
+            { id: "growth", name: "Growth" },
+          ]
+      const routerPrompt = buildRouterPrompt(String(prompt || ""), sectorList)
 
-      const routerModel =
-        provider === "huggingface" ? (model || "meta-llama/Llama-3.1-8B-Instruct")
-        : provider === "openai" ? "gpt-4o-mini"
-        : provider === "anthropic" ? "claude-3-5-haiku-latest"
-        : provider === "groq" ? "llama-3.3-70b-versatile"
-        : provider === "openrouter" ? "poolside/laguna-s-2.1:free"
-        : "meta-llama/Llama-3.1-8B-Instruct"
+      const routerModel = model || routerModelForProvider(provider)
 
       const result = await runChatCompletion({
         provider,
         apiKey,
         model: routerModel,
         messages: [{ role: "user", content: routerPrompt }],
-        maxTokens: 220,
+        maxTokens: 280,
       })
 
       if (result.error || !result.text) {
         return NextResponse.json({
           sectorId: "research",
+          pipeline: ["research", "engineering"],
           confidence: 0.5,
           reason: "Falha no roteador IA; fallback para Pesquisa.",
         })
@@ -169,6 +118,7 @@ export async function POST(req: NextRequest) {
       if (!parsed) {
         return NextResponse.json({
           sectorId: "research",
+          pipeline: ["research", "engineering"],
           confidence: 0.5,
           reason: "Resposta inválida do roteador IA; fallback para Pesquisa.",
         })
@@ -176,32 +126,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(parsed)
     }
 
-    const wantsImage = isImageModel(String(model || ""))
+    const promptText = String(prompt || "")
+    const explicitModality = resolveMediaFromBody(body, promptText)
+    const hasExplicitMedia = typeof body.mediaModality === "string"
+    const legacyImageModel = isImageModel(String(model || ""))
+    const isDesignSector = sectorId === "design"
+    const detectedModality = isDesignSector || hasExplicitMedia || legacyImageModel
+      ? explicitModality
+      : "text"
+    const effectiveModality: MediaModality =
+      legacyImageModel && detectedModality === "text" ? "image" : detectedModality
 
-    if (wantsImage) {
-      const visualPrompt = imagePromptFrom(String(prompt || ""))
-      // Imagem FLUX: HF do body (mesmo com OR ativo) ou env do servidor
-      const hfFromClient = String(body.hfToken || body.apiKey || clientKey || "")
-      const hfResolved = resolveApiKey("huggingface", hfFromClient)
-      const hfKey = hfResolved.apiKey || serverKeyFor("huggingface")
-
-      if (!hfKey) {
+    if (isMediaModality(effectiveModality) || legacyImageModel) {
+      if (provider === "mock" || !apiKey) {
         return NextResponse.json({
-          text: [
-            "Não foi possível gerar pixels: falta token Hugging Face.",
-            "Salve uma key HF no painel API (pode manter OpenRouter ativo depois).",
-            `Conceito visual: ${visualPrompt.slice(0, 280)}`,
-          ].join(" "),
+          text: `[simulação] Pedido de ${effectiveModality} — configure a API key do provedor ativo.`,
         })
       }
 
-      const generated = await generateImage(String(model), visualPrompt, hfKey)
-      if (generated.error || !generated.imageUrl) {
-        return NextResponse.json({ error: generated.error || "Falha ao gerar imagem." }, { status: 200 })
+      const mediaPrompt = imagePromptFrom(promptText)
+      const systemPrompt = buildAgentSystemPrompt({
+        provider,
+        sectorId: typeof sectorId === "string" ? sectorId : undefined,
+        sectorName: typeof sectorName === "string" ? sectorName : undefined,
+        agentName: String(agentName || "Agente"),
+        agentRole: String(agentRole || "Assistente"),
+        ensembleSlot: typeof ensembleSlot === "number" ? ensembleSlot : undefined,
+      })
+
+      const mediaModel =
+        legacyImageModel && effectiveModality === "image"
+          ? String(model)
+          : await resolveMediaModel(provider, effectiveModality, typeof model === "string" ? model : undefined)
+
+      const generated = await generateMedia({
+        provider,
+        apiKey,
+        modality: effectiveModality,
+        prompt: mediaPrompt,
+        systemPrompt,
+        model: mediaModel || undefined,
+      })
+
+      if (generated.error && !generated.imageUrl && !generated.videoUrl && !generated.text) {
+        return NextResponse.json({ error: generated.error }, { status: 200 })
       }
+
       return NextResponse.json({
-        text: `Imagem gerada com ${model}. Prompt usado: ${visualPrompt.slice(0, 200)}`,
+        text: generated.text || `Entrega ${effectiveModality} via ${provider}.`,
         imageUrl: generated.imageUrl,
+        videoUrl: generated.videoUrl,
+        audioUrl: generated.audioUrl,
+        model: generated.model,
       })
     }
 

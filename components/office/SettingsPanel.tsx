@@ -116,8 +116,7 @@ export default function SettingsPanel({ onDone }: { onDone?: () => void }) {
     <div className="p-4 theme-cream w-[min(92vw,22rem)]">
       <h3 className="text-sm font-bold text-ink mb-1">Provedor de IA</h3>
       <p className="text-[11px] text-muted-ink mb-3 leading-relaxed">
-        HF = time · OpenRouter = trio em paralelo · OpenAI/Claude/Groq = 1 sênior/setor.
-        Imagens FLUX: salve key HF (mesmo usando OR).
+        Só o provedor selecionado é usado — chat, missões e roteador. Ao salvar, o time é remontado para esse provedor.
       </p>
 
       {serverCfg && serverCfg.serverProviders.length > 0 && (
@@ -185,12 +184,6 @@ export default function SettingsPanel({ onDone }: { onDone?: () => void }) {
               </a>
             )}
           </p>
-          {provider !== "huggingface" && (
-            <p className="text-[10px] text-muted-ink mb-3 border-2 border-ink/20 bg-cream-2 px-2 py-1.5 leading-relaxed">
-              Imagens FLUX: troque para HF, cole o token, Salvar; depois volte ao provedor atual.
-              As keys ficam salvas por provedor no browser.
-            </p>
-          )}
         </>
       )}
 

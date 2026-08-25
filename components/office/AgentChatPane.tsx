@@ -9,10 +9,17 @@ import { HF_IMAGE_MODELS, modelsForSector } from "@/lib/game/constants"
 import { Agent } from "@/lib/game/types"
 import { activeApiKey, modelsForProvider } from "@/lib/ai/providers"
 import { isProviderAuthError } from "@/lib/ai/remapModels"
+import { detectMediaModality, isMediaModality } from "@/lib/ai/mediaModality"
 
-async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<{ text: string; imageUrl?: string }> {
+async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<{
+  text: string
+  imageUrl?: string
+  videoUrl?: string
+  audioUrl?: string
+}> {
   const { aiProvider, apiKeys, hfToken, setProviderError } = useGameStore.getState()
   const apiKey = activeApiKey(aiProvider, apiKeys, hfToken)
+  const modality = detectMediaModality(prompt)
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -27,6 +34,7 @@ async function callAgent(agent: Agent, prompt: string, sectorName: string): Prom
       apiKey,
       hfToken: apiKey,
       model: agent.model,
+      ...(agent.sectorId === "design" && isMediaModality(modality) ? { mediaModality: modality } : {}),
     }),
   })
   const data = await res.json()
@@ -38,6 +46,8 @@ async function callAgent(agent: Agent, prompt: string, sectorName: string): Prom
   return {
     text: data.text || "(sem resposta)",
     imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
+    audioUrl: typeof data.audioUrl === "string" ? data.audioUrl : undefined,
   }
 }
 
@@ -92,7 +102,14 @@ export default function AgentChatPane() {
     setAgentState(agent.id, "working")
     try {
       const result = await callAgent(agent, prompt, sector?.name || "")
-      addChatMessage(agent.id, { role: "assistant", content: result.text, timestamp: Date.now(), imageUrl: result.imageUrl })
+      addChatMessage(agent.id, {
+        role: "assistant",
+        content: result.text,
+        timestamp: Date.now(),
+        imageUrl: result.imageUrl,
+        videoUrl: result.videoUrl,
+        audioUrl: result.audioUrl,
+      })
       addAgentLog(agent.id, `Respondeu: ${prompt.slice(0, 40)}${prompt.length > 40 ? "…" : ""}`)
       addFeedItem({ agentId: agent.id, kind: "message", text: `respondeu: "${prompt.slice(0, 60)}${prompt.length > 60 ? "…" : ""}"` })
     } catch (err) {
@@ -125,7 +142,14 @@ export default function AgentChatPane() {
 
     try {
       const result = await callAgent({ ...target, chatHistory: [...(target.chatHistory || [])] }, batonPrompt, targetSector?.name || "")
-      addChatMessage(target.id, { role: "assistant", content: result.text, timestamp: Date.now(), imageUrl: result.imageUrl })
+      addChatMessage(target.id, {
+        role: "assistant",
+        content: result.text,
+        timestamp: Date.now(),
+        imageUrl: result.imageUrl,
+        videoUrl: result.videoUrl,
+        audioUrl: result.audioUrl,
+      })
       addAgentLog(target.id, `Recebeu bastão de ${agent.name}`)
       addFeedItem({ agentId: target.id, kind: "message", text: `entregou sua parte do bastão de ${agent.name}` })
     } catch {
@@ -242,6 +266,12 @@ export default function AgentChatPane() {
               {msg.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={msg.imageUrl} alt="Gerada" className="mt-2 border border-ink max-w-full" />
+              )}
+              {msg.videoUrl && (
+                <video src={msg.videoUrl} controls className="mt-2 border border-ink max-w-full" />
+              )}
+              {msg.audioUrl && (
+                <audio src={msg.audioUrl} controls className="mt-2 w-full" />
               )}
             </div>
           </div>

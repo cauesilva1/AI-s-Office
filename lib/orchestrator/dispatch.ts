@@ -1,6 +1,7 @@
 import { Agent, Message, MissionStep, AIProvider } from "@/lib/game/types"
 import { summarizeForHandoff } from "@/lib/orchestrator/handoff"
 import { ensembleSlotOf } from "@/lib/ai/officeMode"
+import type { MediaModality } from "@/lib/ai/mediaModality"
 
 interface DispatchParams {
   step: MissionStep
@@ -18,6 +19,8 @@ interface DispatchParams {
 export interface DispatchResult {
   text: string
   imageUrl?: string
+  videoUrl?: string
+  audioUrl?: string
 }
 
 function buildMissionPrompt(params: {
@@ -95,6 +98,57 @@ export async function dispatchStep(params: DispatchParams): Promise<DispatchResu
   return {
     text: data.text || "(sem resposta)",
     imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
+    audioUrl: typeof data.audioUrl === "string" ? data.audioUrl : undefined,
+  }
+}
+
+export async function dispatchMediaStep(
+  params: DispatchParams & { modality: Exclude<MediaModality, "text"> },
+): Promise<DispatchResult> {
+  const {
+    step, agent, sectorName, missionPrompt, previousResult, provider, apiKey, signal, modality,
+  } = params
+
+  const prompt = buildMissionPrompt({
+    missionPrompt,
+    previousResult,
+    sectorName,
+    stepNote: step.note,
+  })
+
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      agentName: agent.name,
+      agentRole: agent.role,
+      sectorName,
+      sectorId: agent.sectorId,
+      prompt,
+      history: [],
+      provider,
+      apiKey,
+      hfToken: apiKey,
+      model: agent.model,
+      mediaModality: modality,
+    }),
+  })
+
+  if (signal?.aborted) {
+    throw new Error("Missão cancelada pelo usuário")
+  }
+
+  const data = await res.json()
+  if (data?.error) {
+    throw new Error(String(data.error))
+  }
+  return {
+    text: data.text || "(sem resposta)",
+    imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
+    videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
+    audioUrl: typeof data.audioUrl === "string" ? data.audioUrl : undefined,
   }
 }
 

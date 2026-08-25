@@ -24,15 +24,5 @@ export function routeIncludesDesign(route: { sectorId: string }[]): boolean {
   return route.some(s => s.sectorId === "design")
 }
 
-/** Pedidos que esperam pixel/arte, não só brief de design */
-export function looksLikeImageRequest(text: string): boolean {
-  const t = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-  return (
-    /\b(imagem|image|foto|ilustra|desenho|pintura|wallpaper|banner|mockup|flux)\b/.test(t) ||
-    /\b(gerar|crie|cria|faca|faz).{0,40}\b(img|arte|visual)\b/.test(t) ||
-    /\b(png|jpg|jpeg|webp)\b/.test(t)
-  )
-}
+export { detectMediaModality, looksLikeImageRequest, isMediaModality } from "@/lib/ai/mediaModality"
+export type { MediaModality } from "@/lib/ai/mediaModality"

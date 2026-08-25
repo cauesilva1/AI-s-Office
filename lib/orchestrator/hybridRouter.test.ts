@@ -1,66 +1,80 @@
 import { describe, expect, it } from "vitest"
-import { routeByRules, buildPipeline } from "@/lib/orchestrator/hybridRouter"
+import {
+  buildRouterPrompt,
+  parseRouterResponse,
+  resolveRouterBackend,
+  ROUTER_MODEL_OPENROUTER,
+} from "@/lib/ai/routerConfig"
+import { buildPipeline, type RouteDecision } from "@/lib/orchestrator/hybridRouter"
 import { Agent } from "@/lib/game/types"
 
-describe("hybridRouter", () => {
-  it("roteia por keywords de engineering", () => {
-    const decision = routeByRules("preciso refatorar o codigo typescript da api")
-    expect(decision).not.toBeNull()
-    expect(decision?.primarySectorId).toBe("engineering")
-    expect(decision?.strategy).toBe("rules")
-    expect(decision!.confidence).toBeGreaterThanOrEqual(0.65)
+function stubAgent(id: string, sectorId: string): Agent {
+  return {
+    id,
+    name: id,
+    role: "x",
+    sectorId,
+    color: "#fff",
+    model: "m",
+    log: [],
+    chatHistory: [],
+    spriteState: "idle",
+    position: { x: 0, y: 0 },
+  }
+}
+
+describe("resolveRouterBackend", () => {
+  it("usa só o provedor ativo", () => {
+    const backend = resolveRouterBackend({
+      activeProvider: "openrouter",
+      apiKey: "or-key",
+    })
+    expect(backend?.provider).toBe("openrouter")
+    expect(backend?.model).toBe(ROUTER_MODEL_OPENROUTER)
   })
 
-  it("roteia design", () => {
-    const decision = routeByRules("melhorar o layout e ui do figma")
-    expect(decision?.primarySectorId).toBe("design")
+  it("usa openai quando ativo", () => {
+    const backend = resolveRouterBackend({
+      activeProvider: "openai",
+      apiKey: "sk-test",
+    })
+    expect(backend?.provider).toBe("openai")
+    expect(backend?.model).toBe("gpt-4o-mini")
   })
 
-  it("retorna null sem keywords", () => {
-    expect(routeByRules("olá, tudo bem?")).toBeNull()
+  it("retorna null sem key do provedor ativo", () => {
+    expect(resolveRouterBackend({ activeProvider: "openrouter" })).toBeNull()
   })
+})
 
-  it("buildPipeline monta cadeia a partir do setor primário", () => {
-    const agents: Agent[] = [
-      {
-        id: "a1",
-        name: "R",
-        role: "x",
-        sectorId: "research",
-        color: "#fff",
-        model: "m",
-        log: [],
-        chatHistory: [],
-        spriteState: "idle",
-        position: { x: 0, y: 0 },
-      },
-      {
-        id: "a2",
-        name: "E",
-        role: "x",
-        sectorId: "engineering",
-        color: "#fff",
-        model: "m",
-        log: [],
-        chatHistory: [],
-        spriteState: "idle",
-        position: { x: 0, y: 0 },
-      },
-      {
-        id: "a3",
-        name: "D",
-        role: "x",
-        sectorId: "devops",
-        color: "#fff",
-        model: "m",
-        log: [],
-        chatHistory: [],
-        spriteState: "idle",
-        position: { x: 0, y: 0 },
-      },
-    ]
-    const pipeline = buildPipeline("engineering", agents)
-    expect(pipeline.map(s => s.sectorId)).toEqual(["research", "engineering", "devops"])
-    expect(pipeline.every(s => s.agentId)).toBe(true)
+describe("parseRouterResponse", () => {
+  it("parseia pipeline de imagem para design", () => {
+    const parsed = parseRouterResponse(
+      '{"sectorId":"design","pipeline":["design"],"confidence":0.95,"reason":"pedido de imagem"}',
+    )
+    expect(parsed?.sectorId).toBe("design")
+    expect(parsed?.pipeline).toEqual(["design"])
+  })
+})
+
+describe("buildRouterPrompt", () => {
+  it("menciona imagem e design", () => {
+    const p = buildRouterPrompt("quero uma foto", [{ id: "design", name: "Design" }])
+    expect(p.toLowerCase()).toMatch(/imagem|design/)
+  })
+})
+
+describe("buildPipeline", () => {
+  it("usa pipeline retornada pela IA", () => {
+    const agents = [stubAgent("a2", "design")]
+    const decision: RouteDecision = {
+      primarySectorId: "design",
+      pipeline: ["design"],
+      strategy: "llm",
+      confidence: 0.9,
+      reason: "imagem",
+    }
+    const pipeline = buildPipeline(decision, agents)
+    expect(pipeline.map(s => s.sectorId)).toEqual(["design"])
   })
 })

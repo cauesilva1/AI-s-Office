@@ -50,6 +50,8 @@ export interface Message {
   timestamp: number
   handoffFrom?: string
   imageUrl?: string
+  videoUrl?: string
+  audioUrl?: string
 }
 
 export interface FeedItem {

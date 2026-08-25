@@ -171,6 +171,9 @@ describe("ensureEnsembleRoster", () => {
     expect(eng).toHaveLength(3)
     expect(new Set(eng.map((a) => a.model)).size).toBe(3)
     expect(eng.map((a) => a.role)).toEqual(["Proposta", "Crítica", "Ângulo rápido"])
+
+    const design = agents.filter((a) => a.sectorId === "design")
+    expect(design.map((a) => a.role)).toEqual(["Brief visual", "Imagem · background", "Vídeo · background"])
   })
 })
 

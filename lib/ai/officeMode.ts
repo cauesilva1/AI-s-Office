@@ -3,6 +3,7 @@ import { BASE_SECTORS, STARTING_AGENTS } from "@/lib/game/constants"
 import { generateLogEntry } from "@/lib/game/engine"
 import { defaultModelForSector } from "@/lib/ai/remapModels"
 import { fillMissingStartingAgents } from "@/store/officeBootstrap"
+import { designBackgroundSlots } from "@/lib/ai/openRouterCatalog"
 
 export type SectorSenior = {
   name: string
@@ -210,25 +211,37 @@ export function ensureEnsembleRoster(
   for (const sector of BASE_SECTORS) {
     const existing = agents.filter(a => a.sectorId === sector.id)
     const baseSenior = senior(sector.id)
+    const slots =
+      provider === "openrouter" && sector.id === "design"
+        ? designBackgroundSlots()
+        : ENSEMBLE_SLOTS.map((meta, slot) => ({
+            slot,
+            modality: "text" as const,
+            role: meta.role,
+            nameSuffix: meta.nameSuffix,
+            fallbackModel: defaultModelForSector(provider, sector.id, slot),
+          }))
 
-    for (let slot = 0; slot < ENSEMBLE_SLOTS.length; slot++) {
-      const meta = ENSEMBLE_SLOTS[slot]
-      const model = defaultModelForSector(provider, sector.id, slot)
-      const prev = existing[slot]
-      const id = prev?.id || `ensemble_${sector.id}_${slot}`
+    for (const slotDef of slots) {
+      const model =
+        provider === "openrouter" && sector.id === "design"
+          ? slotDef.fallbackModel
+          : defaultModelForSector(provider, sector.id, slotDef.slot)
+      const prev = existing[slotDef.slot]
+      const id = prev?.id || `ensemble_${sector.id}_${slotDef.slot}`
       const desk = nextDesks.find(d => d.sectorId === sector.id && !d.agentId)
       if (desk) desk.agentId = id
 
       kept.push({
         id,
-        name: `${baseSenior.name} · ${meta.nameSuffix}`,
-        role: meta.role,
+        name: `${baseSenior.name} · ${slotDef.nameSuffix}`,
+        role: slotDef.role,
         sectorId: sector.id,
         color: prev?.color || sector.color,
         model,
         log: prev?.log?.length
           ? prev.log
-          : [generateLogEntry(`Ensemble · ${meta.role} · ${model.split("/").pop()}`)],
+          : [generateLogEntry(`Ensemble · ${slotDef.role} · ${model.split("/").pop()}`)],
         chatHistory: prev?.chatHistory || [],
         spriteState: "idle",
         position: desk
