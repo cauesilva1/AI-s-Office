@@ -7,6 +7,7 @@ import {
   OR_MEDIA_FALLBACK,
 } from "@/lib/ai/openRouterCatalog"
 import { runChatCompletion } from "@/lib/ai/chatClient"
+import { enrichImagePrompt } from "@/lib/ai/mediaPromptBuilders"
 
 export type MediaResult = {
   text: string
@@ -15,6 +16,7 @@ export type MediaResult = {
   audioUrl?: string
   model?: string
   error?: string
+  durationMs?: number
 }
 
 function extractImageFromOrMessage(message: Record<string, unknown>): string | undefined {
@@ -243,26 +245,8 @@ function extractHfImageUrl(data: Record<string, unknown>): string | undefined {
   return undefined
 }
 
-/** Enriquece brief de publicidade e evita bloqueio de IP (imagem preta) */
-export function enrichImagePrompt(raw: string): string {
-  let p = raw.trim()
-  // Personagens protegidos → descrição original (FLUX/fal costuma devolver preto)
-  p = p
-    .replace(/\bhomem[-\s]?aranha\b/gi, "original red-and-blue spider-themed superhero in athletic suit")
-    .replace(/\bspider[-\s]?man\b/gi, "original red-and-blue spider-themed superhero in athletic suit")
-    .replace(/\bdesing\b/gi, "design")
-
-  const looksAd = /\b(publicidade|anuncio|propaganda|fanta|garrafa|banner|cartaz)\b/i.test(p)
-  if (looksAd) {
-    return [
-      "Professional advertising key visual, photorealistic, vibrant commercial photography,",
-      "soft studio lighting, sharp product focus, high detail, 4k look.",
-      p,
-      "Orange soda bottle clearly visible in hand, energetic summer mood, clean composition.",
-    ].join(" ")
-  }
-  return `High quality detailed image. ${p}`
-}
+/** @deprecated use mediaPromptBuilders — reexport p/ testes existentes */
+export { enrichImagePrompt } from "@/lib/ai/mediaPromptBuilders"
 
 async function remoteUrlToDataUrl(remoteUrl: string): Promise<string | undefined> {
   try {
@@ -410,6 +394,59 @@ async function generateOpenAiImage(
   return { text: "", error: "OpenAI não retornou imagem" }
 }
 
+async function generateGoogleImage(
+  apiKey: string,
+  model: string,
+  prompt: string,
+): Promise<MediaResult> {
+  const visualPrompt = enrichImagePrompt(prompt)
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: visualPrompt }] }],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    return { text: "", error: `Google imagem: ${err.slice(0, 220)}`, model }
+  }
+
+  const data = await response.json()
+  const parts = data?.candidates?.[0]?.content?.parts as Array<{
+    text?: string
+    inlineData?: { mimeType?: string; data?: string }
+  }> | undefined
+
+  let text = ""
+  let imageUrl: string | undefined
+  if (Array.isArray(parts)) {
+    for (const part of parts) {
+      if (part.text) text += part.text
+      if (part.inlineData?.data) {
+        const mime = part.inlineData.mimeType || "image/png"
+        imageUrl = `data:${mime};base64,${part.inlineData.data}`
+      }
+    }
+  }
+
+  if (!imageUrl) {
+    return { text: text || "", error: "Gemini não retornou imagem", model }
+  }
+  return {
+    text: text || "Imagem gerada com Gemini.",
+    imageUrl,
+    model,
+  }
+}
+
 export async function resolveMediaModel(
   provider: AIProvider,
   modality: MediaModality,
@@ -435,10 +472,27 @@ export async function resolveMediaModel(
 
   if (provider === "openai" && modality === "image") return "gpt-image-1"
 
+  if (provider === "google" && modality === "image") {
+    return "gemini-2.0-flash-preview-image-generation"
+  }
+
   return null
 }
 
 export async function generateMedia(params: {
+  provider: AIProvider
+  apiKey: string
+  modality: MediaModality
+  prompt: string
+  systemPrompt?: string
+  model?: string
+}): Promise<MediaResult> {
+  const started = Date.now()
+  const result = await generateMediaInner(params)
+  return { ...result, durationMs: result.durationMs ?? Date.now() - started }
+}
+
+async function generateMediaInner(params: {
   provider: AIProvider
   apiKey: string
   modality: MediaModality
@@ -477,6 +531,14 @@ export async function generateMedia(params: {
 
   if (provider === "openai" && modality === "image") {
     return generateOpenAiImage(apiKey, prompt)
+  }
+
+  if (provider === "google" && modality === "image") {
+    return generateGoogleImage(
+      apiKey,
+      model || "gemini-2.0-flash-preview-image-generation",
+      prompt,
+    )
   }
 
   const chat = await runChatCompletion({

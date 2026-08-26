@@ -1,3 +1,10 @@
+// ---------------------------------------------------------------------------
+// FUTURO (Fase 3 — fora do escopo atual)
+// Playbooks prontos, modo agência de marketing, galeria de assets,
+// compartilhar missão por link (auth) e colaboração multiplayer.
+// Ativar Prisma client + auth só quando houver save real.
+// ---------------------------------------------------------------------------
+
 generator client {
   provider = "prisma-client-js"
 }

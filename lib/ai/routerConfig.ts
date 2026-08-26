@@ -56,6 +56,8 @@ export function routerModelForProvider(provider: AIProvider): string {
   if (provider === "openai") return "gpt-4o-mini"
   if (provider === "anthropic") return "claude-3-5-haiku-latest"
   if (provider === "groq") return "llama-3.3-70b-versatile"
+  if (provider === "nvidia") return "meta/llama-3.3-70b-instruct"
+  if (provider === "google") return "gemini-2.0-flash"
   return ROUTER_MODEL_HUGGINGFACE
 }
 

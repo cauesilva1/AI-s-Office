@@ -71,11 +71,10 @@ async function routeByLlm(params: {
   const { prompt, sectors, backend } = params
 
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("/api/router", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        taskType: "router",
         prompt,
         sectors: sectors.map(s => ({ id: s.id, name: s.name })),
         provider: backend.provider,

@@ -66,6 +66,12 @@ export default function FeedPanel({ onPickAgent }: { onPickAgent?: () => void })
                   <span className="font-bold text-ink">{agent?.name || "Sistema"}</span>
                   {" · "}{timeAgo(item.timestamp)}
                   {typeof item.stage === "number" && <span className="text-coral"> · etapa {item.stage}</span>}
+                  {typeof item.durationMs === "number" && item.durationMs > 0 && (
+                    <span> · {(item.durationMs / 1000).toFixed(1)}s</span>
+                  )}
+                  {item.modelLabel && (
+                    <span className="text-ink"> · {item.modelLabel.split("/").pop()}</span>
+                  )}
                 </div>
                 <div className={`border-2 border-ink px-2 py-1.5 text-[11px] leading-snug flex gap-1.5 ${
                   item.kind === "handoff" ? "bg-coral/15" : "bg-cream"

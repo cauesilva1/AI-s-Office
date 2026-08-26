@@ -63,6 +63,10 @@ export interface FeedItem {
   timestamp: number
   missionId?: string
   stage?: number
+  /** Latência da etapa (ms) — ex. Design */
+  durationMs?: number
+  /** Modelo usado na etapa */
+  modelLabel?: string
 }
 
 export type RoutingMode = "hybrid"

@@ -131,9 +131,64 @@ export async function runChatCompletion(params: ChatParams): Promise<{ text?: st
           "X-Title": "Agent Office",
         }
       )
+    case "nvidia":
+      return openAICompatible(
+        "https://integrate.api.nvidia.com/v1/chat/completions",
+        apiKey,
+        model,
+        messages,
+        maxTokens
+      )
+    case "google":
+      return googleGeminiChat(apiKey, model, messages, maxTokens)
     case "anthropic":
       return anthropicChat(apiKey, model, messages, maxTokens)
     default:
       return { error: "Provedor não suportado" }
   }
+}
+
+/** Gemini generateContent — OpenAI-compatible wrapper via REST */
+async function googleGeminiChat(
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+  maxTokens: number
+): Promise<{ text?: string; error?: string }> {
+  const system = messages.filter(m => m.role === "system").map(m => m.content).join("\n")
+  const contents = messages
+    .filter(m => m.role !== "system")
+    .map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }))
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+      contents,
+      generationConfig: { maxOutputTokens: maxTokens },
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    if (response.status === 401 || response.status === 403) {
+      return { error: "API key Google inválida. Verifique em Config." }
+    }
+    if (response.status === 429) return { error: "Limite Google atingido. Aguarde e tente de novo." }
+    return { error: `Erro Google (${response.status}): ${err.slice(0, 220)}` }
+  }
+
+  const data = await response.json()
+  const text = String(
+    data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") ||
+      "(sem resposta)",
+  )
+  return { text: stripThink(text) }
 }

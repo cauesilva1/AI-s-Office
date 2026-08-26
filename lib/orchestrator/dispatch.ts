@@ -21,6 +21,8 @@ export interface DispatchResult {
   imageUrl?: string
   videoUrl?: string
   audioUrl?: string
+  model?: string
+  durationMs?: number
 }
 
 function buildMissionPrompt(params: {
@@ -100,14 +102,21 @@ export async function dispatchStep(params: DispatchParams): Promise<DispatchResu
     imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
     videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
     audioUrl: typeof data.audioUrl === "string" ? data.audioUrl : undefined,
+    model: typeof data.model === "string" ? data.model : undefined,
+    durationMs: typeof data.durationMs === "number" ? data.durationMs : undefined,
   }
 }
 
 export async function dispatchMediaStep(
-  params: DispatchParams & { modality: Exclude<MediaModality, "text"> },
+  params: DispatchParams & {
+    modality: Exclude<MediaModality, "text">
+    /** Override do modelo do agente (ex. compare A/B) */
+    modelOverride?: string
+  },
 ): Promise<DispatchResult> {
   const {
     step, agent, sectorName, missionPrompt, previousResult, provider, apiKey, signal, modality,
+    modelOverride,
   } = params
 
   const prompt = buildMissionPrompt({
@@ -117,7 +126,7 @@ export async function dispatchMediaStep(
     stepNote: step.note,
   })
 
-  const res = await fetch("/api/chat", {
+  const res = await fetch("/api/media", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal,
@@ -131,7 +140,7 @@ export async function dispatchMediaStep(
       provider,
       apiKey,
       hfToken: apiKey,
-      model: agent.model,
+      model: modelOverride || agent.model,
       mediaModality: modality,
     }),
   })
@@ -149,6 +158,8 @@ export async function dispatchMediaStep(
     imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
     videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
     audioUrl: typeof data.audioUrl === "string" ? data.audioUrl : undefined,
+    model: typeof data.model === "string" ? data.model : undefined,
+    durationMs: typeof data.durationMs === "number" ? data.durationMs : undefined,
   }
 }
 

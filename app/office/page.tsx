@@ -2,19 +2,41 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { AnimatePresence, motion } from "framer-motion"
 import { useGameStore } from "@/store/gameStore"
 import HeaderDropdown from "@/components/office/HeaderDropdown"
-import SettingsPanel from "@/components/office/SettingsPanel"
-import HirePanel from "@/components/office/HirePanel"
-import FeedPanel from "@/components/office/FeedPanel"
 import SectorBoard from "@/components/office/SectorBoard"
-import AgentChatPane from "@/components/office/AgentChatPane"
 import MissionComposer from "@/components/game/MissionComposer"
 import WorkingStrip from "@/components/office/WorkingStrip"
 import Toast from "@/components/game/Toast"
 import { getProviderMeta, isLiveProvider, providerNeedsKey } from "@/lib/ai/providers"
 import { isEnsembleProvider, isSoloProvider } from "@/lib/ai/officeMode"
+
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="p-4 text-[11px] text-muted-ink theme-cream min-h-[6rem]">
+      Carregando {label}…
+    </div>
+  )
+}
+
+const SettingsPanel = dynamic(() => import("@/components/office/SettingsPanel"), {
+  ssr: false,
+  loading: () => <PanelFallback label="API" />,
+})
+const HirePanel = dynamic(() => import("@/components/office/HirePanel"), {
+  ssr: false,
+  loading: () => <PanelFallback label="modelos" />,
+})
+const FeedPanel = dynamic(() => import("@/components/office/FeedPanel"), {
+  ssr: false,
+  loading: () => <PanelFallback label="atividade" />,
+})
+const AgentChatPane = dynamic(() => import("@/components/office/AgentChatPane"), {
+  ssr: false,
+  loading: () => <PanelFallback label="chat" />,
+})
 
 export default function OfficePage() {
   const {

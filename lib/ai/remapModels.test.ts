@@ -44,6 +44,15 @@ describe("remapModels", () => {
     expect(isModelValidForProvider("black-forest-labs/FLUX.1-schnell", "huggingface")).toBe(true)
   })
 
+  it("aceita modelos NVIDIA NIM", () => {
+    expect(isModelValidForProvider("meta/llama-3.3-70b-instruct", "nvidia")).toBe(true)
+    expect(isModelValidForProvider("gpt-4o-mini", "nvidia")).toBe(false)
+  })
+
+  it("aceita modelos Gemini", () => {
+    expect(isModelValidForProvider("gemini-2.0-flash", "google")).toBe(true)
+  })
+
   it("remapeia seedream ao voltar para HF", () => {
     const agents = [
       agent({ id: "1", sectorId: "design", model: "bytedance-seed/seedream-5-0-lite" }),

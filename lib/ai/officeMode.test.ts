@@ -38,6 +38,8 @@ describe("isSoloProvider", () => {
     expect(isSoloProvider("openai")).toBe(true)
     expect(isSoloProvider("anthropic")).toBe(true)
     expect(isSoloProvider("groq")).toBe(true)
+    expect(isSoloProvider("nvidia")).toBe(true)
+    expect(isSoloProvider("google")).toBe(true)
     expect(isSoloProvider("openrouter")).toBe(false)
     expect(isSoloProvider("huggingface")).toBe(false)
     expect(isSoloProvider("mock")).toBe(false)

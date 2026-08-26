@@ -22,7 +22,7 @@ export const useGameStore = create<OfficeStore>()(
     }),
     {
       name: "agent-office-save",
-      version: 10,
+      version: 11,
       migrate: (persisted: any, version) => {
         if (version < 4) {
           return {
@@ -59,16 +59,46 @@ export const useGameStore = create<OfficeStore>()(
           if (persisted.hfToken && !keys.huggingface) keys.huggingface = persisted.hfToken
           persisted.apiKeys = keys
         }
-        // v10: slices (sem mudança de schema)
+        // v11: histórico de missões já parcialmente persistido; limpa data-URLs gigantes
+        if (version < 11 && Array.isArray(persisted?.missionHistory)) {
+          persisted.missionHistory = persisted.missionHistory.slice(0, 40).map((m: {
+            imageUrl?: string
+            videoUrl?: string
+            audioUrl?: string
+            finalResult?: string
+          }) => ({
+            ...m,
+            finalResult: m.finalResult?.slice(0, 12_000),
+            imageUrl:
+              m.imageUrl && m.imageUrl.startsWith("data:") && m.imageUrl.length > 400_000
+                ? undefined
+                : m.imageUrl,
+            videoUrl:
+              m.videoUrl && m.videoUrl.startsWith("data:") && m.videoUrl.length > 400_000
+                ? undefined
+                : m.videoUrl,
+            audioUrl:
+              m.audioUrl && m.audioUrl.startsWith("data:") && m.audioUrl.length > 400_000
+                ? undefined
+                : m.audioUrl,
+          }))
+        }
         return persisted
       },
       partialize: (state) => ({
         sectors: state.sectors,
         agents: state.agents,
         desks: state.desks,
-        teamFeed: state.teamFeed,
-        missionQueue: state.missionQueue,
-        missionHistory: state.missionHistory,
+        teamFeed: state.teamFeed.slice(0, 50),
+        missionQueue: state.missionQueue.slice(0, 10),
+        missionHistory: state.missionHistory.slice(0, 40).map(m => ({
+          ...m,
+          finalResult: m.finalResult?.slice(0, 12_000),
+          imageUrl:
+            m.imageUrl && m.imageUrl.startsWith("data:") && m.imageUrl.length > 400_000
+              ? undefined
+              : m.imageUrl,
+        })),
         routingMode: state.routingMode,
         aiProvider: state.aiProvider,
         hfToken: state.hfToken,

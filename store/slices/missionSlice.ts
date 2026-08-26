@@ -70,13 +70,19 @@ export const createMissionSlice: StateCreator<OfficeStore, [], [], MissionSlice>
 
   completeActiveMission: (result, media) => set((state) => {
     if (!state.activeMission) return state
+    // Limita data-URLs grandes no histórico persistido (~400KB)
+    const capUrl = (url?: string) => {
+      if (!url) return undefined
+      if (url.startsWith("data:") && url.length > 400_000) return undefined
+      return url
+    }
     const completed: Mission = {
       ...state.activeMission,
       status: "completed",
-      finalResult: result,
-      imageUrl: media?.imageUrl,
-      videoUrl: media?.videoUrl,
-      audioUrl: media?.audioUrl,
+      finalResult: result.slice(0, 12_000),
+      imageUrl: capUrl(media?.imageUrl),
+      videoUrl: capUrl(media?.videoUrl),
+      audioUrl: capUrl(media?.audioUrl),
       completedAt: Date.now(),
     }
     return {

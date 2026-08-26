@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { useGameStore } from "@/store/gameStore"
-import { Check, Copy, Loader2, Send, Sparkles, X, Route, Play } from "lucide-react"
+import { Check, Loader2, Send, Sparkles, X, Route, Play } from "lucide-react"
 import { autoRoute, buildPipeline, RouteDecision } from "@/lib/orchestrator/hybridRouter"
 import { dispatchSectorEnsemble, dispatchStep, dispatchMediaStep } from "@/lib/orchestrator/dispatch"
 import { detectMediaModality, isMediaModality, routeIncludesDesign, summarizeForHandoff } from "@/lib/orchestrator/handoff"
@@ -13,6 +13,12 @@ import { activeApiKey, providerNeedsKey } from "@/lib/ai/providers"
 import { isImageModel } from "@/lib/game/constants"
 import { isProviderAuthError } from "@/lib/ai/remapModels"
 import { isEnsembleProvider } from "@/lib/ai/officeMode"
+import { IP_SENSITIVE_HINT, looksLikeIpSensitiveRequest } from "@/lib/ai/ipSensitive"
+import { compareImageModels } from "@/lib/ai/mediaPromptBuilders"
+import { MissionPrompt } from "@/components/game/mission/MissionPrompt"
+import { MissionPreview } from "@/components/game/mission/MissionPreview"
+import { MissionResult, type CompareCandidate } from "@/components/game/mission/MissionResult"
+import { MissionHistory } from "@/components/game/mission/MissionHistory"
 
 function sectorNameById(id: string, sectors: { id: string; name: string }[]): string {
   return sectors.find(s => s.id === id)?.name || id
@@ -82,6 +88,8 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
     videoUrl?: string
     audioUrl?: string
   } | null>(null)
+  const [compareCandidates, setCompareCandidates] = useState<CompareCandidate[] | null>(null)
+  const [compareDesign, setCompareDesign] = useState(false)
   const [showAdjust, setShowAdjust] = useState(false)
   const [manualSectorId, setManualSectorId] = useState(sectors[0]?.id || "engineering")
   const [manualRoute, setManualRoute] = useState<MissionStep[]>([])
@@ -103,6 +111,8 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
   const mediaModality = detectMediaModality(prompt)
   const previewNeedsMedia = previewHasDesign && isMediaModality(mediaModality)
   const mediaNeedsKey = previewNeedsMedia && needsToken
+  const previewIpRisk = previewNeedsMedia && looksLikeIpSensitiveRequest(prompt)
+  const canCompareDesign = Boolean(compareImageModels(aiProvider)) && mediaModality === "image"
 
   const stepPhase = (idx: number): StepPhase => {
     if (idx < stepIndex) return "done"
@@ -144,6 +154,7 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
     setLastResult(null)
     setLastPrompt(null)
     setLastMedia(null)
+    setCompareCandidates(null)
     setPhase("running")
     setPreviewRoute([])
 
@@ -198,26 +209,94 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
           const modality = missionMedia as Exclude<MediaModality, "text">
           const mediaAgent = pickDesignMediaAgent(agents, modality) || agent
           markWorking(mediaAgent.id)
-          let result: { text: string; imageUrl?: string; videoUrl?: string; audioUrl?: string }
+          let result: {
+            text: string
+            imageUrl?: string
+            videoUrl?: string
+            audioUrl?: string
+            model?: string
+            durationMs?: number
+          }
           try {
+            const pair =
+              compareDesign && modality === "image" ? compareImageModels(aiProvider) : null
             addFeedItem({
               missionId: mission.id,
               stage: i + 1,
               agentId: mediaAgent.id,
               kind: "info",
-              text: `Gerando ${mediaLabel(modality)} com ${aiProvider}…`,
+              text: pair
+                ? `Comparando 2 modelos Design…`
+                : `Gerando ${mediaLabel(modality)} com ${aiProvider}…`,
             })
-            result = await dispatchMediaStep({
-              step,
-              agent: mediaAgent,
-              sectorName,
-              missionPrompt: content,
-              previousResult,
-              provider: aiProvider,
-              apiKey,
-              signal: abortRef.current?.signal,
-              modality,
-            })
+
+            if (pair) {
+              const [mA, mB] = pair
+              const [a, b] = await Promise.all([
+                dispatchMediaStep({
+                  step,
+                  agent: mediaAgent,
+                  sectorName,
+                  missionPrompt: content,
+                  previousResult,
+                  provider: aiProvider,
+                  apiKey,
+                  signal: abortRef.current?.signal,
+                  modality,
+                  modelOverride: mA,
+                }),
+                dispatchMediaStep({
+                  step,
+                  agent: mediaAgent,
+                  sectorName,
+                  missionPrompt: content,
+                  previousResult,
+                  provider: aiProvider,
+                  apiKey,
+                  signal: abortRef.current?.signal,
+                  modality,
+                  modelOverride: mB,
+                }),
+              ])
+              const candidates: CompareCandidate[] = []
+              if (a.imageUrl) {
+                candidates.push({ model: a.model || mA, imageUrl: a.imageUrl, durationMs: a.durationMs })
+              }
+              if (b.imageUrl) {
+                candidates.push({ model: b.model || mB, imageUrl: b.imageUrl, durationMs: b.durationMs })
+              }
+              setCompareCandidates(candidates.length > 0 ? candidates : null)
+              const pick = candidates[0]
+              result = {
+                text: [a.text, b.text].filter(Boolean).join("\n\n") || "Comparação Design.",
+                imageUrl: pick?.imageUrl,
+                model: pick?.model,
+                durationMs: Math.max(a.durationMs || 0, b.durationMs || 0) || undefined,
+              }
+              if (a.imageUrl || b.imageUrl) {
+                addFeedItem({
+                  missionId: mission.id,
+                  stage: i + 1,
+                  agentId: mediaAgent.id,
+                  kind: "message",
+                  text: `Design · compare · ${(result.durationMs || 0) / 1000 > 0 ? `${((result.durationMs || 0) / 1000).toFixed(1)}s` : "ok"}`,
+                  durationMs: result.durationMs,
+                  modelLabel: candidates.map(c => c.model.split("/").pop()).join(" vs "),
+                })
+              }
+            } else {
+              result = await dispatchMediaStep({
+                step,
+                agent: mediaAgent,
+                sectorName,
+                missionPrompt: content,
+                previousResult,
+                provider: aiProvider,
+                apiKey,
+                signal: abortRef.current?.signal,
+                modality,
+              })
+            }
           } finally {
             markIdle(mediaAgent.id)
           }
@@ -238,15 +317,19 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
               ? `${mediaLabel(modality)} gerada`
               : `Design · sem ${mediaLabel(modality)}`,
           )
-          addFeedItem({
-            missionId: mission.id,
-            stage: i + 1,
-            agentId: mediaAgent.id,
-            kind: "message",
-            text: result.imageUrl || result.videoUrl
-              ? `${mediaLabel(modality)} gerada · etapa ${i + 1}: ${sectorName}`
-              : `Design · etapa ${i + 1}`,
-          })
+          if (!(compareDesign && modality === "image" && compareImageModels(aiProvider))) {
+            addFeedItem({
+              missionId: mission.id,
+              stage: i + 1,
+              agentId: mediaAgent.id,
+              kind: "message",
+              text: result.imageUrl || result.videoUrl
+                ? `${mediaLabel(modality)} · ${(result.durationMs ? (result.durationMs / 1000).toFixed(1) + "s · " : "")}${sectorName}`
+                : `Design · etapa ${i + 1}`,
+              durationMs: result.durationMs,
+              modelLabel: result.model || mediaAgent.model,
+            })
+          }
           previousResult = result.imageUrl || result.videoUrl
             ? `${result.text}\n\n[${mediaLabel(modality)} gerada pelo Design]`
             : result.text
@@ -472,6 +555,15 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
     }
   }
 
+  const downloadImage = () => {
+    if (!lastMedia?.imageUrl) return
+    const a = document.createElement("a")
+    a.href = lastMedia.imageUrl
+    a.download = `agent-office-${Date.now()}.png`
+    a.click()
+    showToast("Download iniciado")
+  }
+
   return (
     <div id="missao" className={compact ? "h-full flex flex-col" : "bg-paper border-[3px] border-ink shadow-pixel p-4 sm:p-5"}>
       {needsToken && (
@@ -490,21 +582,25 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
         </div>
       )}
 
-      <div className="border-[3px] border-ink bg-cream p-3 mb-3">
-        <label className="text-sm font-bold text-ink mb-1 block">Briefing da missão</label>
-        <p className="text-[11px] text-muted-ink mb-2">
-          Descreva o que quer. Você vê a rota antes de executar.
-        </p>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={compact ? 5 : 4}
-          disabled={missionBusy && phase !== "preview"}
-          placeholder="Ex.: Crie um design de publicidade da Fanta com um herói segurando a garrafa…"
-          className="w-full bg-paper border-2 border-ink p-3 text-ink text-sm placeholder:text-muted-ink focus:outline-none focus:border-coral resize-none disabled:opacity-50 min-h-[6rem]"
-        />
-      </div>
+      <MissionPrompt
+        prompt={prompt}
+        onChange={setPrompt}
+        onKeyDown={onKeyDown}
+        disabled={missionBusy && phase !== "preview"}
+        compact={compact}
+      />
+
+      {canCompareDesign && phase !== "running" && (
+        <label className="mb-2 flex items-center gap-2 text-[11px] text-ink cursor-pointer">
+          <input
+            type="checkbox"
+            checked={compareDesign}
+            onChange={(e) => setCompareDesign(e.target.checked)}
+            className="border-2 border-ink"
+          />
+          Gerar com 2 modelos Design e escolher no Resultado
+        </label>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {phase === "idle" || phase === "planning" ? (
@@ -565,44 +661,19 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
       </div>
 
       {/* Preview da rota */}
-      {phase === "preview" && previewRoute.length > 0 && (
-        <div className="mt-3 border-[3px] border-ink bg-paper p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-ink mb-2">
-            Preview da rota
-          </div>
-          <div className="flex items-center gap-2 flex-wrap mb-2">
-            {previewRoute.map((step, idx) => {
-              const agent = agents.find(a => a.id === step.agentId)
-              return (
-                <div key={`${step.sectorId}-${idx}`} className="flex items-center gap-2">
-                  <div className="inline-flex items-center gap-1.5 border-2 border-ink bg-cream px-2 py-1">
-                    {agent && <RobotAvatar color={agent.color} size="sm" showBubble={false} />}
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-bold text-ink">
-                        {idx + 1}. {sectorNameById(step.sectorId, sectors)}
-                      </div>
-                      <div className="text-[9px] text-muted-ink truncate max-w-[8rem]">
-                        {agent?.name || "sem agente"}
-                      </div>
-                    </div>
-                  </div>
-                  {idx < previewRoute.length - 1 && <span className="text-muted-ink text-xs">→</span>}
-                </div>
-              )
-            })}
-          </div>
-
-          {previewNeedsMedia && (
-            <div className="mt-2 border-2 border-coral bg-coral/10 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
-              <strong>{mediaLabel(mediaModality).charAt(0).toUpperCase() + mediaLabel(mediaModality).slice(1)}:</strong>{" "}
-              gerada pelo provedor ativo ({aiProvider}) na etapa Design.
-              {mediaNeedsKey && " Configure a API key no painel para sair da simulação."}
-            </div>
-          )}
-          <p className="text-[10px] text-muted-ink mt-2">
-            Entre etapas o bastão leva só um <strong>resumo</strong>, não o texto inteiro.
-          </p>
-        </div>
+      {phase === "preview" && (
+        <MissionPreview
+          previewRoute={previewRoute}
+          agents={agents}
+          sectors={sectors}
+          previewNeedsMedia={previewNeedsMedia}
+          mediaNeedsKey={mediaNeedsKey}
+          previewIpRisk={previewIpRisk}
+          mediaLabel={mediaLabel(mediaModality)}
+          aiProvider={aiProvider}
+          ipHint={IP_SENSITIVE_HINT}
+          sectorNameById={sectorNameById}
+        />
       )}
 
       {/* Pipeline ao vivo */}
@@ -671,92 +742,40 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
       )}
 
       {lastResult && phase === "idle" && (
-        <div className="mt-3 border-[3px] border-ink bg-paper overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 bg-navy text-cream border-b-[3px] border-ink">
-            <span className="font-bold text-[11px] uppercase tracking-wide">Resultado</span>
-            <div className="flex items-center gap-1">
-              <button onClick={copyResult} className="p-1.5 border border-cream/40 hover:bg-coral" title="Copiar">
-                <Copy className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  setLastResult(null)
-                  setLastPrompt(null)
-                  setLastMedia(null)
-                }}
-                className="p-1.5 border border-cream/40 hover:bg-coral"
-                title="Fechar"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-          <div className="p-3 space-y-3">
-            {lastMedia?.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={lastMedia.imageUrl}
-                alt="Imagem gerada na missão"
-                className="border-2 border-ink w-full max-h-80 object-contain bg-cream"
-              />
-            )}
-            {lastMedia?.videoUrl && (
-              <video
-                src={lastMedia.videoUrl}
-                controls
-                className="border-2 border-ink w-full max-h-80 bg-cream"
-              />
-            )}
-            {lastMedia?.audioUrl && (
-              <audio src={lastMedia.audioUrl} controls className="w-full" />
-            )}
-            {lastPrompt && (
-              <div className="border-2 border-ink bg-cream px-2.5 py-2">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-ink mb-1">
-                  Seu prompt
-                </div>
-                <p className="text-xs text-ink whitespace-pre-wrap leading-relaxed">{lastPrompt}</p>
-              </div>
-            )}
-            <div className="max-h-32 overflow-y-auto text-[11px] text-muted-ink whitespace-pre-wrap leading-relaxed border-t-2 border-ink/15 pt-2">
-              {lastResult}
-            </div>
-          </div>
-        </div>
+        <MissionResult
+          lastResult={lastResult}
+          lastPrompt={lastPrompt}
+          lastMedia={lastMedia}
+          compareCandidates={compareCandidates}
+          onPickCompare={(c) => {
+            setLastMedia(prev => ({ ...prev, imageUrl: c.imageUrl }))
+            showToast(`Escolhido: ${c.model.split("/").pop()}`)
+          }}
+          onCopy={copyResult}
+          onDownload={downloadImage}
+          onClose={() => {
+            setLastResult(null)
+            setLastPrompt(null)
+            setLastMedia(null)
+            setCompareCandidates(null)
+          }}
+        />
       )}
 
-      {phase === "idle" && missionHistory.length > 0 && (
-        <div className="mt-3 border-2 border-ink bg-cream p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-ink mb-2">
-            Histórico recente
-          </div>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {missionHistory.slice(0, 8).map(m => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => {
-                  setLastResult(m.finalResult || m.error || "(sem resultado)")
-                  setLastPrompt(m.prompt)
-                  setLastMedia(
-                    m.imageUrl || m.videoUrl || m.audioUrl
-                      ? { imageUrl: m.imageUrl, videoUrl: m.videoUrl, audioUrl: m.audioUrl }
-                      : null,
-                  )
-                }}
-                className="w-full text-left border-2 border-ink bg-paper px-2 py-1.5 hover:bg-cream-2"
-              >
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className={m.status === "completed" ? "text-grid font-bold" : "text-coral font-bold"}>
-                    {m.status === "completed" ? "OK" : "FALHOU"}
-                  </span>
-                  {m.imageUrl && <span className="text-coral">· imagem</span>}
-                </div>
-                <div className="text-[11px] text-ink line-clamp-2 mt-0.5">{m.prompt}</div>
-              </button>
-            ))}
-          </div>
-        </div>
+      {phase === "idle" && (
+        <MissionHistory
+          missions={missionHistory}
+          onSelect={(m) => {
+            setLastResult(m.finalResult || m.error || "(sem resultado)")
+            setLastPrompt(m.prompt)
+            setLastMedia(
+              m.imageUrl || m.videoUrl || m.audioUrl
+                ? { imageUrl: m.imageUrl, videoUrl: m.videoUrl, audioUrl: m.audioUrl }
+                : null,
+            )
+            setCompareCandidates(null)
+          }}
+        />
       )}
 
       {showAdjust && !missionBusy && (

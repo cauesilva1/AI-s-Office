@@ -11,9 +11,15 @@ export type SectorSenior = {
   systemPrompt: string
 }
 
-/** Solo = 1 sênior/setor (OpenAI, Claude, Groq). OpenRouter = ensemble de 3. */
+/** Solo = 1 sênior/setor (OpenAI, Claude, Groq, NVIDIA, Google). OpenRouter = ensemble de 3. */
 export function isSoloProvider(provider: AIProvider): boolean {
-  return provider === "openai" || provider === "anthropic" || provider === "groq"
+  return (
+    provider === "openai" ||
+    provider === "anthropic" ||
+    provider === "groq" ||
+    provider === "nvidia" ||
+    provider === "google"
+  )
 }
 
 /** OpenRouter: 3 modelos por setor em paralelo + síntese */

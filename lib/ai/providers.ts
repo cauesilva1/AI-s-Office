@@ -5,6 +5,8 @@ export type AIProvider =
   | "anthropic"
   | "groq"
   | "openrouter"
+  | "nvidia"
+  | "google"
 
 export type ApiKeys = Partial<Record<Exclude<AIProvider, "mock">, string>>
 
@@ -71,6 +73,24 @@ export const PROVIDERS: ProviderMeta[] = [
     hint: "Um token; catálogo padrão usa modelos free (max_price=0). openrouter.ai/models?max_price=0",
     docsUrl: "https://openrouter.ai/keys",
   },
+  {
+    id: "nvidia",
+    label: "NVIDIA NIM",
+    short: "NIM",
+    needsKey: true,
+    placeholder: "nvapi-…",
+    hint: "API key em build.nvidia.com → Get API Key (NIM OpenAI-compatible).",
+    docsUrl: "https://build.nvidia.com",
+  },
+  {
+    id: "google",
+    label: "Google Gemini",
+    short: "Gemini",
+    needsKey: true,
+    placeholder: "AIza…",
+    hint: "Chave em aistudio.google.com → API keys. Imagem criativa (Nano Banana / Imagen).",
+    docsUrl: "https://aistudio.google.com/apikey",
+  },
 ]
 
 export const PROVIDER_MODELS: Record<AIProvider, string[]> = {
@@ -110,6 +130,17 @@ export const PROVIDER_MODELS: Record<AIProvider, string[]> = {
     "liquid/lfm-2.5-2.6b:free",
     "dots-studio/dots-3-note-preview:free",
     "openrouter/free",
+  ],
+  nvidia: [
+    "meta/llama-3.3-70b-instruct",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "nvidia/nemotron-mini-4b-instruct",
+  ],
+  google: [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-preview-image-generation",
   ],
 }
 

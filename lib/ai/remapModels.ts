@@ -29,6 +29,22 @@ export const SECTOR_DEFAULTS: Record<Exclude<AIProvider, "huggingface" | "mock">
     devops: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
     growth: ["llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b"],
   },
+  nvidia: {
+    engineering: ["meta/llama-3.3-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-8b-instruct"],
+    design: ["meta/llama-3.3-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-8b-instruct"],
+    research: ["nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.3-70b-instruct", "meta/llama-3.1-8b-instruct"],
+    data: ["meta/llama-3.3-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-8b-instruct"],
+    devops: ["meta/llama-3.1-8b-instruct", "meta/llama-3.3-70b-instruct", "nvidia/nemotron-mini-4b-instruct"],
+    growth: ["meta/llama-3.3-70b-instruct", "meta/llama-3.1-8b-instruct", "nvidia/nemotron-mini-4b-instruct"],
+  },
+  google: {
+    engineering: ["gemini-2.5-flash", "gemini-2.0-flash"],
+    design: ["gemini-2.0-flash-preview-image-generation", "gemini-2.5-flash", "gemini-2.0-flash"],
+    research: ["gemini-2.5-flash", "gemini-2.0-flash"],
+    data: ["gemini-2.5-flash", "gemini-2.0-flash"],
+    devops: ["gemini-2.0-flash", "gemini-2.5-flash"],
+    growth: ["gemini-2.0-flash", "gemini-2.5-flash"],
+  },
   // Catálogo curado OR free — ver sectorModelCatalog.ts
   openrouter: Object.fromEntries(
     Object.entries(OR_SECTOR_CATALOG).map(([sectorId, picks]) => [
@@ -70,6 +86,8 @@ export function isModelValidForProvider(model: string, provider: AIProvider): bo
   if (catalogFor(provider).has(model)) return true
   if (provider === "openai") return !model.includes("/") && (model.startsWith("gpt") || model.startsWith("o"))
   if (provider === "anthropic") return model.startsWith("claude")
+  if (provider === "nvidia") return /^(meta|nvidia)\//.test(model)
+  if (provider === "google") return model.startsWith("gemini")
   return false
 }
 
