@@ -1,5 +1,7 @@
 "use client"
 
+import { PLAYBOOKS } from "@/lib/game/playbooks"
+
 type MissionPromptProps = {
   prompt: string
   onChange: (value: string) => void
@@ -15,6 +17,20 @@ export function MissionPrompt({ prompt, onChange, onKeyDown, disabled, compact }
       <p className="text-[11px] text-muted-ink mb-2">
         Descreva o que quer. Você vê a rota antes de executar.
       </p>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {PLAYBOOKS.map(pb => (
+          <button
+            key={pb.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(pb.prompt)}
+            className="text-[10px] font-bold border-2 border-ink bg-paper px-2 py-1 hover:bg-coral hover:text-cream disabled:opacity-40"
+            title={pb.prompt.slice(0, 120)}
+          >
+            {pb.label}
+          </button>
+        ))}
+      </div>
       <textarea
         value={prompt}
         onChange={(e) => onChange(e.target.value)}

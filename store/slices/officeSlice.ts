@@ -26,8 +26,25 @@ export type OfficeSlice = {
   resetGame: () => void
   selectDesk: (deskId: string | null) => void
   selectAgent: (agentId: string | null) => void
-  addAgent: (data: { name: string; role: string; model: string; sectorId: string; color: string }) => boolean
+  addAgent: (data: {
+    name: string
+    role: string
+    model: string
+    sectorId: string
+    color: string
+    systemPrompt?: string
+    specialistId?: string
+  }) => boolean
   removeAgent: (agentId: string) => void
+  /** Aplica template de especialista no agente (ou sênior do setor) */
+  applySpecialist: (data: {
+    agentId?: string
+    sectorId: string
+    name: string
+    role: string
+    systemPrompt: string
+    specialistId: string
+  }) => boolean
   showToast: (message: string) => void
   hideToast: () => void
   toggleModal: (modal: "settings" | "chat" | "sectorMap" | "hire") => void
@@ -99,6 +116,8 @@ export const createOfficeSlice: StateCreator<OfficeStore, [], [], OfficeSlice> =
       sectorId: data.sectorId,
       color: data.color,
       model: data.model,
+      systemPrompt: data.systemPrompt,
+      specialistId: data.specialistId,
       log: [generateLogEntry("Conectado ao escritório")],
       chatHistory: [],
       spriteState: "idle",
@@ -108,6 +127,31 @@ export const createOfficeSlice: StateCreator<OfficeStore, [], [], OfficeSlice> =
     set({
       desks: state.desks.map(d => d.id === desk.id ? { ...d, agentId: id } : d),
       agents: [...state.agents, newAgent],
+    })
+    return true
+  },
+
+  applySpecialist: (data) => {
+    const state = get()
+    const target =
+      (data.agentId && state.agents.find(a => a.id === data.agentId)) ||
+      state.agents.find(a => a.sectorId === data.sectorId)
+
+    if (!target) return false
+
+    set({
+      agents: state.agents.map(a =>
+        a.id === target.id
+          ? {
+              ...a,
+              name: data.name,
+              role: data.role,
+              systemPrompt: data.systemPrompt,
+              specialistId: data.specialistId,
+              log: [...a.log, generateLogEntry(`Especialista: ${data.name}`)].slice(-40),
+            }
+          : a,
+      ),
     })
     return true
   },

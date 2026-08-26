@@ -214,4 +214,15 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("Designer")
     expect(prompt).toContain("Agent Office")
   })
+
+  it("prioriza customSystemPrompt de especialista", () => {
+    const prompt = buildAgentSystemPrompt({
+      provider: "openai",
+      sectorId: "engineering",
+      agentName: "X",
+      agentRole: "Y",
+      customSystemPrompt: "Você é Copy Anúncio especialista.",
+    })
+    expect(prompt).toBe("Você é Copy Anúncio especialista.")
+  })
 })

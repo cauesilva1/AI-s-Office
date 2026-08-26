@@ -12,6 +12,7 @@ import RobotAvatar from "@/components/office/RobotAvatar"
 import { activeApiKey, providerNeedsKey } from "@/lib/ai/providers"
 import { isImageModel } from "@/lib/game/constants"
 import { isProviderAuthError } from "@/lib/ai/remapModels"
+import { friendlyErrorLine } from "@/lib/ai/friendlyErrors"
 import { isEnsembleProvider } from "@/lib/ai/officeMode"
 import { IP_SENSITIVE_HINT, looksLikeIpSensitiveRequest } from "@/lib/ai/ipSensitive"
 import { compareImageModels } from "@/lib/ai/mediaPromptBuilders"
@@ -452,12 +453,12 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
         (error instanceof Error && /cancelad/i.test(error.message))
       const message = aborted
         ? "Missão cancelada pelo usuário"
-        : error instanceof Error
-          ? error.message
-          : "Falha na execução da missão"
+        : friendlyErrorLine(error instanceof Error ? error.message : "Falha na execução da missão")
       failActiveMission(message)
       showToast(message)
-      if (!aborted && isProviderAuthError(message)) setProviderError(message)
+      if (!aborted && isProviderAuthError(error instanceof Error ? error.message : message)) {
+        setProviderError(message)
+      }
       setStepIndex(-1)
       setLiveRoute([])
       setPhase("idle")

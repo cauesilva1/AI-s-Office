@@ -25,6 +25,7 @@ export default function SettingsPanel({ onDone }: { onDone?: () => void }) {
     showToast,
     resetGame,
     setProviderError,
+    providerError,
   } = useGameStore()
 
   const [provider, setProvider] = useState<AIProvider>(aiProvider)
@@ -118,6 +119,12 @@ export default function SettingsPanel({ onDone }: { onDone?: () => void }) {
       <p className="text-[11px] text-muted-ink mb-3 leading-relaxed">
         Só o provedor selecionado é usado — chat, missões e roteador. Ao salvar, o time é remontado para esse provedor.
       </p>
+
+      {providerError && (
+        <div className="mb-3 border-2 border-coral bg-coral/10 px-2.5 py-2 text-[11px] text-ink leading-relaxed">
+          <strong>Último erro:</strong> {providerError}
+        </div>
+      )}
 
       {serverCfg && serverCfg.serverProviders.length > 0 && (
         <div className="mb-3 flex items-start gap-2 border-2 border-ink bg-grid/10 px-2 py-1.5 text-[10px] text-ink">

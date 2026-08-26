@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
         agentName: String(agentName || "Agente"),
         agentRole: String(agentRole || "Assistente"),
         ensembleSlot: typeof ensembleSlot === "number" ? ensembleSlot : undefined,
+        customSystemPrompt:
+          typeof body.customSystemPrompt === "string" ? body.customSystemPrompt : undefined,
       })
 
       const messages: ChatMessage[] = [
@@ -47,7 +49,8 @@ export async function POST(req: NextRequest) {
       })
 
       if (result.error) {
-        return NextResponse.json({ error: result.error }, { status: 200 })
+        const { friendlyErrorLine } = await import("@/lib/ai/friendlyErrors")
+        return NextResponse.json({ error: friendlyErrorLine(result.error) }, { status: 200 })
       }
       return NextResponse.json({ text: result.text })
     }

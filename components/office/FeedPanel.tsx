@@ -1,7 +1,8 @@
 "use client"
 
+import { useMemo } from "react"
 import { useGameStore } from "@/store/gameStore"
-import { ArrowRightLeft, Copy, ImageIcon } from "lucide-react"
+import { ArrowRightLeft, Copy, Download, ImageIcon } from "lucide-react"
 import RobotAvatar from "@/components/office/RobotAvatar"
 
 function timeAgo(ts: number): string {
@@ -15,6 +16,11 @@ function timeAgo(ts: number): string {
 export default function FeedPanel({ onPickAgent }: { onPickAgent?: () => void }) {
   const { agents, teamFeed, selectAgent, missionHistory, showToast } = useGameStore()
 
+  const gallery = useMemo(
+    () => missionHistory.filter(m => m.imageUrl).slice(0, 12),
+    [missionHistory],
+  )
+
   const copyMissionResult = async (result: string) => {
     try {
       await navigator.clipboard.writeText(result)
@@ -22,6 +28,14 @@ export default function FeedPanel({ onPickAgent }: { onPickAgent?: () => void })
     } catch {
       showToast("Não foi possível copiar")
     }
+  }
+
+  const downloadImage = (url: string) => {
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `agent-office-${Date.now()}.png`
+    a.click()
+    showToast("Download iniciado")
   }
 
   return (
@@ -33,6 +47,35 @@ export default function FeedPanel({ onPickAgent }: { onPickAgent?: () => void })
         <h3 className="text-sm font-bold text-ink">Atividade</h3>
         <p className="text-[10px] text-muted-ink mt-0.5">Feed ao vivo e histórico de missões</p>
       </div>
+
+      {gallery.length > 0 && (
+        <div className="border-b-2 border-ink p-3 bg-cream-2">
+          <h4 className="text-[10px] font-bold text-ink mb-2 uppercase tracking-wide">
+            Galeria recente
+          </h4>
+          <div className="grid grid-cols-3 gap-1.5">
+            {gallery.map(m => (
+              <div key={m.id} className="relative border-2 border-ink bg-paper group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={m.imageUrl}
+                  alt=""
+                  className="w-full h-16 object-cover"
+                  title={m.prompt}
+                />
+                <button
+                  type="button"
+                  onClick={() => m.imageUrl && downloadImage(m.imageUrl)}
+                  className="absolute bottom-0.5 right-0.5 p-0.5 bg-navy text-cream border border-ink opacity-90 hover:bg-coral"
+                  title="Baixar PNG"
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5 min-h-[8rem]">
         {teamFeed.length === 0 && (

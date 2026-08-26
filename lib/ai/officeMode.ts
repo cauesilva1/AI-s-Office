@@ -125,7 +125,7 @@ export function getSectorSenior(sectorId: string): SectorSenior {
   }
 }
 
-/** System prompt — solo: sênior do setor; ensemble: sênior + ângulo do slot; time: papel do agente */
+/** System prompt — custom do agente (especialista) tem prioridade */
 export function buildAgentSystemPrompt(params: {
   provider: AIProvider
   sectorId?: string
@@ -133,8 +133,12 @@ export function buildAgentSystemPrompt(params: {
   agentName: string
   agentRole: string
   ensembleSlot?: number
+  customSystemPrompt?: string
 }): string {
-  const { provider, sectorId, sectorName, agentName, agentRole, ensembleSlot } = params
+  const { provider, sectorId, sectorName, agentName, agentRole, ensembleSlot, customSystemPrompt } = params
+  if (customSystemPrompt?.trim()) {
+    return customSystemPrompt.trim()
+  }
   if (isSoloProvider(provider) && sectorId) {
     return getSectorSenior(sectorId).systemPrompt
   }

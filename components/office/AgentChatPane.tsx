@@ -9,6 +9,7 @@ import { HF_IMAGE_MODELS, modelsForSector } from "@/lib/game/constants"
 import { Agent } from "@/lib/game/types"
 import { activeApiKey, modelsForProvider } from "@/lib/ai/providers"
 import { isProviderAuthError } from "@/lib/ai/remapModels"
+import { friendlyErrorLine } from "@/lib/ai/friendlyErrors"
 import { detectMediaModality, isMediaModality } from "@/lib/ai/mediaModality"
 import { catalogForProvider, roleLabel } from "@/lib/ai/sectorModelCatalog"
 
@@ -21,7 +22,8 @@ async function callAgent(agent: Agent, prompt: string, sectorName: string): Prom
   const { aiProvider, apiKeys, hfToken, setProviderError } = useGameStore.getState()
   const apiKey = activeApiKey(aiProvider, apiKeys, hfToken)
   const modality = detectMediaModality(prompt)
-  const res = await fetch("/api/chat", {
+  const useMedia = agent.sectorId === "design" && isMediaModality(modality)
+  const res = await fetch(useMedia ? "/api/media" : "/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -35,13 +37,14 @@ async function callAgent(agent: Agent, prompt: string, sectorName: string): Prom
       apiKey,
       hfToken: apiKey,
       model: agent.model,
-      ...(agent.sectorId === "design" && isMediaModality(modality) ? { mediaModality: modality } : {}),
+      customSystemPrompt: agent.systemPrompt,
+      ...(useMedia ? { mediaModality: modality } : {}),
     }),
   })
   const data = await res.json()
   if (data?.error) {
-    const msg = String(data.error)
-    if (isProviderAuthError(msg)) setProviderError(msg)
+    const msg = friendlyErrorLine(String(data.error))
+    if (isProviderAuthError(String(data.error))) setProviderError(msg)
     throw new Error(msg)
   }
   return {
@@ -199,7 +202,10 @@ export default function AgentChatPane() {
         />
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-bold text-ink truncate">{agent.name}</h3>
-          <p className="text-[10px] text-muted-ink truncate">{agent.role} · {sector?.name}</p>
+          <p className="text-[10px] text-muted-ink truncate">
+            {agent.role} · {sector?.name}
+            {agent.specialistId ? " · especialista" : ""}
+          </p>
           <div className="flex items-center gap-1 mt-1">
             <Cpu className="w-3 h-3 text-muted-ink flex-shrink-0" />
             <select

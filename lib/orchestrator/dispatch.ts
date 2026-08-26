@@ -86,6 +86,7 @@ export async function dispatchStep(params: DispatchParams): Promise<DispatchResu
       hfToken: apiKey,
       model: agent.model,
       ensembleSlot,
+      customSystemPrompt: agent.systemPrompt,
     }),
   })
 
@@ -142,6 +143,7 @@ export async function dispatchMediaStep(
       hfToken: apiKey,
       model: modelOverride || agent.model,
       mediaModality: modality,
+      customSystemPrompt: agent.systemPrompt,
     }),
   })
 

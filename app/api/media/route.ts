@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
       agentName: String(agentName || "Agente"),
       agentRole: String(agentRole || "Assistente"),
       ensembleSlot: typeof ensembleSlot === "number" ? ensembleSlot : undefined,
+      customSystemPrompt:
+        typeof body.customSystemPrompt === "string" ? body.customSystemPrompt : undefined,
     })
 
     const mediaModel = await resolveMediaModel(
@@ -74,7 +76,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (generated.error && !generated.imageUrl && !generated.videoUrl && !generated.text) {
-      return NextResponse.json({ error: generated.error }, { status: 200 })
+      const { friendlyErrorLine } = await import("@/lib/ai/friendlyErrors")
+      return NextResponse.json({ error: friendlyErrorLine(generated.error) }, { status: 200 })
     }
 
     return NextResponse.json({

@@ -9,6 +9,9 @@ export interface Agent {
   sectorId: string
   color: string
   model: string
+  /** Prompt custom de bot especialista (template); se vazio, usa officeMode */
+  systemPrompt?: string
+  specialistId?: string
   log: LogEntry[]
   chatHistory: Message[]
   spriteState: "idle" | "working"

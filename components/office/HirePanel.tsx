@@ -13,9 +13,12 @@ import {
   findCuratedModel,
   roleLabel,
 } from "@/lib/ai/sectorModelCatalog"
+import { SPECIALIST_BOTS } from "@/lib/game/specialistBots"
 
 export default function HirePanel({ onDone }: { onDone?: () => void }) {
-  const { sectors, desks, agents, addAgent, setAgentModel, showToast, aiProvider } = useGameStore()
+  const {
+    sectors, desks, agents, addAgent, setAgentModel, applySpecialist, showToast, aiProvider,
+  } = useGameStore()
   const solo = isSoloProvider(aiProvider)
   const ensemble = isEnsembleProvider(aiProvider)
   const [name, setName] = useState("")
@@ -107,8 +110,76 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
     showToast(`${agent?.name || "Agente"} → ${finalModel.split("/").pop()}`)
   }
 
+  const hireSpecialist = (botId: string) => {
+    const bot = SPECIALIST_BOTS.find(b => b.id === botId)
+    if (!bot) return
+
+    if (solo || ensemble) {
+      const ok = applySpecialist({
+        sectorId: bot.sectorId,
+        name: bot.name,
+        role: bot.role,
+        systemPrompt: bot.systemPrompt,
+        specialistId: bot.id,
+      })
+      if (ok) {
+        showToast(`${bot.name} aplicado ao sênior de ${sectors.find(s => s.id === bot.sectorId)?.name || bot.sectorId}`)
+        onDone?.()
+      } else {
+        showToast("Sem agente nesse setor para especializar")
+      }
+      return
+    }
+
+    const color = AGENT_COLORS[agents.length % AGENT_COLORS.length]
+    const ok = addAgent({
+      name: bot.name,
+      role: bot.role,
+      model: defaultModelForSector(aiProvider, bot.sectorId),
+      sectorId: bot.sectorId,
+      color,
+      systemPrompt: bot.systemPrompt,
+      specialistId: bot.id,
+    })
+    if (ok) {
+      showToast(`${bot.name} entrou no escritório`)
+      onDone?.()
+    } else {
+      // Mesa cheia → atualiza o agente do setor
+      const applied = applySpecialist({
+        sectorId: bot.sectorId,
+        name: bot.name,
+        role: bot.role,
+        systemPrompt: bot.systemPrompt,
+        specialistId: bot.id,
+      })
+      showToast(applied ? `${bot.name} atualizou o agente do setor` : "Sem mesa livre nesse setor")
+      if (applied) onDone?.()
+    }
+  }
+
   return (
     <div className="p-4 theme-cream space-y-3">
+      <div>
+        <h3 className="text-sm font-bold text-ink mb-1">Especialistas</h3>
+        <p className="text-[10px] text-muted-ink mb-2 leading-relaxed">
+          Bots com prompt fixo para tarefas específicas (não é fine-tune).
+        </p>
+        <div className="grid grid-cols-2 gap-1.5 mb-3">
+          {SPECIALIST_BOTS.map(bot => (
+            <button
+              key={bot.id}
+              type="button"
+              onClick={() => hireSpecialist(bot.id)}
+              className="border-2 border-ink bg-paper px-2 py-1.5 text-left hover:bg-coral hover:text-cream"
+            >
+              <div className="text-[11px] font-bold">{bot.name}</div>
+              <div className="text-[9px] opacity-80 line-clamp-2">{bot.blurb}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <h3 className="text-sm font-bold text-ink">
         {solo ? "Sênior do setor" : ensemble ? "Trio do setor" : "Adicionar IA"}
       </h3>
