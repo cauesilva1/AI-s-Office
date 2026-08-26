@@ -84,6 +84,14 @@ export async function bestOpenRouterMediaModel(
   return OR_MEDIA_FALLBACK[modality]
 }
 
+export async function openRouterModelSupportsModality(
+  modelId: string,
+  modality: Exclude<MediaModality, "text">,
+): Promise<boolean> {
+  const models = await getCached(modality)
+  return models.some(m => m.id === modelId)
+}
+
 export function designBackgroundSlots(): Array<{
   slot: number
   modality: Exclude<MediaModality, "text"> | "text"

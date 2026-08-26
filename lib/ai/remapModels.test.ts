@@ -38,4 +38,18 @@ describe("remapModels", () => {
     const { changed } = remapAgentsForProvider(agents, "openai")
     expect(changed).toBe(0)
   })
+
+  it("rejeita modelos OpenRouter no HF", () => {
+    expect(isModelValidForProvider("bytedance-seed/seedream-5-0-lite", "huggingface")).toBe(false)
+    expect(isModelValidForProvider("black-forest-labs/FLUX.1-schnell", "huggingface")).toBe(true)
+  })
+
+  it("remapeia seedream ao voltar para HF", () => {
+    const agents = [
+      agent({ id: "1", sectorId: "design", model: "bytedance-seed/seedream-5-0-lite" }),
+    ]
+    const { agents: next, changed } = remapAgentsForProvider(agents, "huggingface")
+    expect(changed).toBe(1)
+    expect(next[0].model).toContain("FLUX")
+  })
 })

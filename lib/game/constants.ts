@@ -1,3 +1,5 @@
+import { HF_SECTOR_CATALOG } from "@/lib/ai/sectorModelCatalog"
+
 export const BASE_SECTORS = [
   { id: "engineering", name: "Engenharia", color: "#2dd4bf" },
   { id: "design", name: "Design", color: "#a78bfa" },
@@ -17,39 +19,13 @@ export const DEFAULT_SECTOR_ZONES = {
   growth: { x: 12, y: 16, w: 8, h: 6 },
 } as const
 
-// Pelo menos 3 modelos por setor, todos no Inference Providers da Hugging Face (ago/2026)
-export const SECTOR_MODELS: Record<string, string[]> = {
-  engineering: [
-    "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-    "moonshotai/Kimi-K2.7-Code",
-    "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  ],
-  design: [
-    "black-forest-labs/FLUX.1-dev",
-    "black-forest-labs/FLUX.1-schnell",
-    "black-forest-labs/FLUX.1-Krea-dev",
-  ],
-  research: [
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-R1",
-    "Qwen/Qwen3-235B-A22B-Thinking-2507",
-  ],
-  data: [
-    "openai/gpt-oss-120b",
-    "Qwen/Qwen3.5-27B",
-    "deepseek-ai/DeepSeek-V3.2",
-  ],
-  devops: [
-    "zai-org/GLM-5.2",
-    "moonshotai/Kimi-K2.6",
-    "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-  ],
-  growth: [
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-    "MiniMaxAI/MiniMax-M3",
-    "meta-llama/Llama-3.3-70B-Instruct",
-  ],
-}
+/** Derivado do catálogo curado — não é trending aleatório */
+export const SECTOR_MODELS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(HF_SECTOR_CATALOG).map(([sectorId, picks]) => [
+    sectorId,
+    picks.map(p => p.id),
+  ]),
+)
 
 export const HF_IMAGE_MODELS = [
   ...SECTOR_MODELS.design,
@@ -73,10 +49,22 @@ export function modelsForSector(sectorId: string): string[] {
   return SECTOR_MODELS[sectorId] || HF_MODELS
 }
 
-export function isImageModel(model: string): boolean {
+export function isHfImageModel(model: string): boolean {
   if (HF_IMAGE_MODELS.includes(model)) return true
   const id = model.toLowerCase()
-  return id.includes("flux") || id.includes("stable-diffusion") || id.includes("qwen-image") || id.includes("hyper-sd")
+  return (
+    id.includes("flux") ||
+    id.includes("stable-diffusion") ||
+    (id.includes("qwen") && id.includes("image")) ||
+    id.includes("hyper-sd")
+  )
+}
+
+/** Modelos de imagem em qualquer provedor (UI / roteamento de agente OR) */
+export function isImageModel(model: string): boolean {
+  if (isHfImageModel(model)) return true
+  const id = model.toLowerCase()
+  return id.includes("seedream") || id.includes("grok-imagine") || id.includes("gpt-image")
 }
 
 // Modelo pequeno e rápido dedicado ao roteamento automático de missões

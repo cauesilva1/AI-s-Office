@@ -8,6 +8,11 @@ import PixelButton from "@/components/site/PixelButton"
 import { modelsForProvider } from "@/lib/ai/providers"
 import { defaultModelForSector, SECTOR_DEFAULTS } from "@/lib/ai/remapModels"
 import { isEnsembleProvider, isSoloProvider } from "@/lib/ai/officeMode"
+import {
+  catalogForProvider,
+  findCuratedModel,
+  roleLabel,
+} from "@/lib/ai/sectorModelCatalog"
 
 export default function HirePanel({ onDone }: { onDone?: () => void }) {
   const { sectors, desks, agents, addAgent, setAgentModel, showToast, aiProvider } = useGameStore()
@@ -16,20 +21,27 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
   const [name, setName] = useState("")
   const [role, setRole] = useState("")
   const [sectorId, setSectorId] = useState(sectors[0]?.id || "engineering")
+  const [model, setModel] = useState(() =>
+    catalogForProvider(aiProvider, sectors[0]?.id || "engineering")[0]?.id ||
+    defaultModelForSector(aiProvider, sectors[0]?.id || "engineering"),
+  )
+  const [customModel, setCustomModel] = useState("")
 
+  const curated = catalogForProvider(aiProvider, sectorId)
   const sectorDefaults =
     aiProvider !== "mock" && aiProvider !== "huggingface"
       ? SECTOR_DEFAULTS[aiProvider]
       : undefined
 
-  const catalog = solo
-    ? (sectorDefaults?.[sectorId] || modelsForProvider(aiProvider))
-    : ensemble
-      ? (SECTOR_DEFAULTS.openrouter?.[sectorId] || modelsForProvider("openrouter"))
-      : modelsForSector(sectorId)
+  const catalog = curated.length > 0
+    ? curated.map(c => c.id)
+    : solo
+      ? (sectorDefaults?.[sectorId] || modelsForProvider(aiProvider))
+      : ensemble
+        ? (SECTOR_DEFAULTS.openrouter?.[sectorId] || modelsForProvider("openrouter"))
+        : modelsForSector(sectorId)
 
-  const [model, setModel] = useState(catalog[0] || defaultModelForSector(aiProvider, sectorId))
-  const [customModel, setCustomModel] = useState("")
+  const selectedCurated = findCuratedModel(aiProvider, sectorId, customModel.trim() || model)
 
   const freeDesks = (sid: string) => desks.filter(d => d.sectorId === sid && !d.agentId).length
   const senior = agents.find(a => a.sectorId === sectorId)
@@ -147,20 +159,31 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
 
       {ensemble ? (
         <div className="space-y-2">
-          <label className="text-[11px] font-bold text-ink block">Modelos do trio</label>
-          {trio.map((a, i) => (
-            <div key={a.id} className="border-2 border-ink bg-cream-2 px-2 py-1.5 text-[11px]">
-              <div className="font-bold text-ink">{i + 1}. {a.role}</div>
-              <div className="text-muted-ink truncate" title={a.model}>{a.model}</div>
-              <button
-                type="button"
-                className="mt-1 text-[10px] font-bold text-coral underline"
-                onClick={() => handleSwapTrioModel(a.id)}
-              >
-                Trocar pelo modelo selecionado abaixo
-              </button>
-            </div>
-          ))}
+          <label className="text-[11px] font-bold text-ink block">Modelos do trio (curados)</label>
+          <p className="text-[10px] text-muted-ink leading-relaxed">
+            Lista fixa com papel — não é trending do Hub.
+          </p>
+          {trio.map((a, i) => {
+            const pick = findCuratedModel(aiProvider, sectorId, a.model)
+            return (
+              <div key={a.id} className="border-2 border-ink bg-cream-2 px-2 py-1.5 text-[11px]">
+                <div className="font-bold text-ink">{i + 1}. {a.role}</div>
+                <div className="text-muted-ink truncate" title={a.model}>{a.model.split("/").pop()}</div>
+                {pick && (
+                  <div className="text-[9px] text-muted-ink mt-0.5">
+                    {roleLabel(pick.role)} · {pick.why}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="mt-1 text-[10px] font-bold text-coral underline"
+                  onClick={() => handleSwapTrioModel(a.id)}
+                >
+                  Trocar pelo modelo selecionado abaixo
+                </button>
+              </div>
+            )
+          })}
           <div className="flex items-center gap-2">
             <Cpu className="w-3.5 h-3.5 text-muted-ink flex-shrink-0" />
             <select
@@ -168,9 +191,20 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
               onChange={(e) => setModel(e.target.value)}
               className="flex-1 bg-cream border-2 border-ink px-2 py-1.5 text-ink text-xs"
             >
-              {catalog.map(m => <option key={m} value={m}>{m}</option>)}
+              {curated.length > 0
+                ? curated.map(c => (
+                    <option key={c.id} value={c.id}>
+                      [{roleLabel(c.role)}] {c.label}
+                    </option>
+                  ))
+                : catalog.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
+          {selectedCurated && (
+            <p className="text-[10px] text-muted-ink leading-relaxed border border-ink/20 px-2 py-1.5">
+              {selectedCurated.why}
+            </p>
+          )}
           <input
             type="text"
             value={customModel}
@@ -182,7 +216,9 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
       ) : (
         <>
           <div>
-            <label className="text-[11px] font-bold text-ink mb-1.5 block">Modelo</label>
+            <label className="text-[11px] font-bold text-ink mb-1.5 block">
+              Modelo {curated.length > 0 ? "(curado por setor)" : ""}
+            </label>
             <div className="flex items-center gap-2 mb-1.5">
               <Cpu className="w-3.5 h-3.5 text-muted-ink flex-shrink-0" />
               <select
@@ -190,9 +226,20 @@ export default function HirePanel({ onDone }: { onDone?: () => void }) {
                 onChange={(e) => setModel(e.target.value)}
                 className="flex-1 bg-cream border-2 border-ink px-2 py-1.5 text-ink text-xs"
               >
-                {catalog.map(m => <option key={m} value={m}>{m}</option>)}
+                {curated.length > 0
+                  ? curated.map(c => (
+                      <option key={c.id} value={c.id}>
+                        [{roleLabel(c.role)}] {c.label}
+                      </option>
+                    ))
+                  : catalog.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
+            {selectedCurated && (
+              <p className="text-[10px] text-muted-ink leading-relaxed mb-1.5 border border-ink/20 px-2 py-1.5">
+                {selectedCurated.why}
+              </p>
+            )}
             <input
               type="text"
               value={customModel}

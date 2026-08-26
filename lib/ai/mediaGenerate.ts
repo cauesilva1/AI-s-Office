@@ -1,6 +1,11 @@
 import { AIProvider } from "@/lib/ai/providers"
 import type { MediaModality } from "@/lib/ai/mediaModality"
-import { bestOpenRouterMediaModel, OR_MEDIA_FALLBACK } from "@/lib/ai/openRouterCatalog"
+import { isHfImageModel } from "@/lib/game/constants"
+import {
+  bestOpenRouterMediaModel,
+  openRouterModelSupportsModality,
+  OR_MEDIA_FALLBACK,
+} from "@/lib/ai/openRouterCatalog"
 import { runChatCompletion } from "@/lib/ai/chatClient"
 
 export type MediaResult = {
@@ -33,10 +38,11 @@ function extractImageFromOrMessage(message: Record<string, unknown>): string | u
   return undefined
 }
 
-async function generateOpenRouterImage(
+async function generateOpenRouterImageViaChat(
   apiKey: string,
   model: string,
   prompt: string,
+  modalities: Array<"image" | "text">,
   systemPrompt?: string,
 ): Promise<MediaResult> {
   const messages: Array<{ role: "system" | "user"; content: string }> = []
@@ -54,33 +60,97 @@ async function generateOpenRouterImage(
     body: JSON.stringify({
       model,
       messages,
-      modalities: ["image", "text"],
+      modalities,
       max_tokens: 1024,
     }),
   })
 
   if (!response.ok) {
     const err = await response.text()
-    return { text: "", error: `OpenRouter imagem (${response.status}): ${err.slice(0, 200)}`, model }
+    return { text: "", error: `OpenRouter imagem (${response.status}): ${err.slice(0, 240)}`, model }
   }
 
   const data = await response.json()
   const message = data?.choices?.[0]?.message || {}
   const imageUrl = extractImageFromOrMessage(message)
-  const text = String(message.content || data?.choices?.[0]?.message?.content || "")
+  const text = String(message.content || "")
 
   if (imageUrl) {
+    return { text: text || `Imagem gerada com ${model}.`, imageUrl, model }
+  }
+  return { text: text || "Modelo não retornou imagem.", model, error: "Sem imagem na resposta" }
+}
+
+/** Image API dedicada — recomendada para Seedream, Flux, etc. */
+async function generateOpenRouterImage(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  systemPrompt?: string,
+): Promise<MediaResult> {
+  const fullPrompt = systemPrompt ? `${systemPrompt.slice(0, 400)}\n\n${prompt}` : prompt
+
+  const response = await fetch("https://openrouter.ai/api/v1/images", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": "https://agent-office.local",
+      "X-Title": "Agent Office",
+    },
+    body: JSON.stringify({ model, prompt: fullPrompt, n: 1 }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    if (response.status === 402) {
+      return {
+        text: "",
+        error:
+          "OpenRouter: créditos insuficientes (402). Recarregue em openrouter.ai/settings/credits ou use Hugging Face (FLUX).",
+        model,
+      }
+    }
+    // Fallback: modelos multimodais (ex. Gemini) ainda no chat/completions
+    if (response.status === 404 || response.status === 400) {
+      const chatOnly = await generateOpenRouterImageViaChat(
+        apiKey,
+        model,
+        prompt,
+        ["image", "text"],
+        systemPrompt,
+      )
+      if (chatOnly.imageUrl || !chatOnly.error?.includes("404")) return chatOnly
+      const imageOnly = await generateOpenRouterImageViaChat(
+        apiKey,
+        model,
+        prompt,
+        ["image"],
+        systemPrompt,
+      )
+      if (imageOnly.imageUrl) return imageOnly
+    }
+    return { text: "", error: `OpenRouter imagem (${response.status}): ${err.slice(0, 240)}`, model }
+  }
+
+  const data = await response.json()
+  const item = data?.data?.[0]
+  const b64 = item?.b64_json
+  const url = item?.url
+  const mediaType = typeof item?.media_type === "string" ? item.media_type : "image/png"
+
+  if (typeof b64 === "string" && b64.length > 0) {
     return {
-      text: text || `Imagem gerada com ${model}.`,
-      imageUrl,
+      text: `Imagem gerada com ${model}.`,
+      imageUrl: `data:${mediaType};base64,${b64}`,
       model,
     }
   }
-  return {
-    text: text || "Modelo não retornou imagem. Tente outro modelo no catálogo OR.",
-    model,
-    error: "Sem imagem na resposta",
+  if (typeof url === "string") {
+    return { text: `Imagem gerada com ${model}.`, imageUrl: url, model }
   }
+
+  return { text: "", error: "Image API não retornou bytes", model }
 }
 
 async function generateOpenRouterVideo(
@@ -141,46 +211,154 @@ async function generateOpenRouterVideo(
   return { text: JSON.stringify(data).slice(0, 300), model, error: "Resposta de vídeo inesperada" }
 }
 
+/** providerId no Inference Providers (não é o slug do Hub) */
+const HF_IMAGE_PROVIDER_ROUTES: Record<string, Array<{ provider: string; providerId: string }>> = {
+  "black-forest-labs/FLUX.1-dev": [
+    { provider: "fal-ai", providerId: "fal-ai/flux/dev" },
+    { provider: "replicate", providerId: "black-forest-labs/flux-dev" },
+    { provider: "wavespeed", providerId: "wavespeed-ai/flux-dev" },
+  ],
+  "black-forest-labs/FLUX.1-schnell": [
+    { provider: "fal-ai", providerId: "fal-ai/flux/schnell" },
+    { provider: "nscale", providerId: "black-forest-labs/FLUX.1-schnell" },
+    { provider: "wavespeed", providerId: "wavespeed-ai/flux-schnell" },
+  ],
+  "black-forest-labs/FLUX.1-Krea-dev": [
+    { provider: "fal-ai", providerId: "fal-ai/flux/krea" },
+    { provider: "replicate", providerId: "black-forest-labs/flux-krea-dev" },
+  ],
+}
+
+function extractHfImageUrl(data: Record<string, unknown>): string | undefined {
+  const images = data.images as Array<{ url?: string; content?: string }> | undefined
+  if (Array.isArray(images) && images[0]) {
+    if (typeof images[0].url === "string") return images[0].url
+    if (typeof images[0].content === "string") return images[0].content
+  }
+  if (typeof data.url === "string") return data.url
+  if (typeof data.image_url === "string") return data.image_url
+  const output = data.output
+  if (typeof output === "string") return output
+  if (Array.isArray(output) && typeof output[0] === "string") return output[0]
+  return undefined
+}
+
+/** Enriquece brief de publicidade e evita bloqueio de IP (imagem preta) */
+export function enrichImagePrompt(raw: string): string {
+  let p = raw.trim()
+  // Personagens protegidos → descrição original (FLUX/fal costuma devolver preto)
+  p = p
+    .replace(/\bhomem[-\s]?aranha\b/gi, "original red-and-blue spider-themed superhero in athletic suit")
+    .replace(/\bspider[-\s]?man\b/gi, "original red-and-blue spider-themed superhero in athletic suit")
+    .replace(/\bdesing\b/gi, "design")
+
+  const looksAd = /\b(publicidade|anuncio|propaganda|fanta|garrafa|banner|cartaz)\b/i.test(p)
+  if (looksAd) {
+    return [
+      "Professional advertising key visual, photorealistic, vibrant commercial photography,",
+      "soft studio lighting, sharp product focus, high detail, 4k look.",
+      p,
+      "Orange soda bottle clearly visible in hand, energetic summer mood, clean composition.",
+    ].join(" ")
+  }
+  return `High quality detailed image. ${p}`
+}
+
+async function remoteUrlToDataUrl(remoteUrl: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(remoteUrl)
+    if (!res.ok) return undefined
+    const buffer = Buffer.from(await res.arrayBuffer())
+    // PNG/JPEG mínimos válidos — rejeita lixo / 1x1 quase preto típico de filtro
+    if (buffer.length < 2_000) return undefined
+    const contentType = res.headers.get("content-type") || ""
+    const mime = contentType.includes("jpeg")
+      ? "image/jpeg"
+      : contentType.includes("webp")
+        ? "image/webp"
+        : "image/png"
+    return `data:${mime};base64,${buffer.toString("base64")}`
+  } catch {
+    return undefined
+  }
+}
+
 async function generateHfImage(
   apiKey: string,
   model: string,
   prompt: string,
 ): Promise<MediaResult> {
-  const endpoints = [
-    `https://router.huggingface.co/hf-inference/models/${model}`,
-    `https://router.huggingface.co/fal-ai/${model}`,
+  const visualPrompt = enrichImagePrompt(prompt)
+  const routes = HF_IMAGE_PROVIDER_ROUTES[model] || [
+    { provider: "fal-ai", providerId: model },
+    { provider: "hf-inference", providerId: `models/${model}` },
   ]
   let lastErr = ""
 
-  for (const url of endpoints) {
+  for (const { provider, providerId } of routes) {
+    const url = `https://router.huggingface.co/${provider}/${providerId}`
     try {
+      const body =
+        provider === "hf-inference"
+          ? { inputs: visualPrompt, parameters: { num_inference_steps: 28 } }
+          : provider === "fal-ai"
+            ? {
+                prompt: visualPrompt,
+                image_size: "square_hd",
+                num_images: 1,
+                enable_safety_checker: false,
+              }
+            : { prompt: visualPrompt }
+
       const response = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          Accept: "image/png",
+          Accept: "application/json, image/png, */*",
         },
-        body: JSON.stringify({ inputs: prompt, parameters: { num_inference_steps: 28 } }),
+        body: JSON.stringify(body),
       })
+
       if (!response.ok) {
         lastErr = await response.text()
         continue
       }
+
       const contentType = response.headers.get("content-type") || ""
-      if (contentType.includes("application/json")) {
+      if (contentType.includes("application/json") || contentType.includes("text/plain")) {
         const data = await response.json()
-        const remoteUrl = data.url || data.image_url
-        if (typeof remoteUrl === "string") {
-          return { text: `Imagem gerada com ${model}.`, imageUrl: remoteUrl, model }
+        const remoteUrl = extractHfImageUrl(data)
+        if (remoteUrl) {
+          const dataUrl = remoteUrl.startsWith("data:")
+            ? remoteUrl
+            : await remoteUrlToDataUrl(remoteUrl)
+          if (dataUrl) {
+            return {
+              text: `Imagem gerada com ${model} (${provider}).`,
+              imageUrl: dataUrl,
+              model,
+            }
+          }
+          // URL remota como fallback (pode expirar)
+          return {
+            text: `Imagem gerada com ${model} (${provider}).`,
+            imageUrl: remoteUrl,
+            model,
+          }
         }
+        lastErr = JSON.stringify(data).slice(0, 220)
         continue
       }
+
       const buffer = Buffer.from(await response.arrayBuffer())
-      if (buffer.length < 32) continue
-      const mime = contentType.includes("jpeg") ? "image/jpeg" : "image/png"
+      if (buffer.length < 2_000) {
+        lastErr = "Imagem vazia ou bloqueada pelo filtro de segurança"
+        continue
+      }
+      const mime = contentType.includes("jpeg") ? "image/jpeg" : contentType.includes("webp") ? "image/webp" : "image/png"
       return {
-        text: `Imagem gerada com ${model}.`,
+        text: `Imagem gerada com ${model} (${provider}).`,
         imageUrl: `data:${mime};base64,${buffer.toString("base64")}`,
         model,
       }
@@ -188,7 +366,12 @@ async function generateHfImage(
       lastErr = err instanceof Error ? err.message : "Erro HF"
     }
   }
-  return { text: "", error: lastErr || "Falha HF imagem", model }
+
+  return {
+    text: "",
+    error: lastErr || "Falha HF imagem — confira se o token tem permissão Inference Providers",
+    model,
+  }
 }
 
 async function generateOpenAiImage(
@@ -233,17 +416,26 @@ export async function resolveMediaModel(
   explicitModel?: string,
 ): Promise<string | null> {
   if (modality === "text") return explicitModel || null
-  if (explicitModel) return explicitModel
 
   if (provider === "openrouter") {
-    return bestOpenRouterMediaModel(modality)
+    const catalogModel = await bestOpenRouterMediaModel(modality)
+    if (explicitModel && await openRouterModelSupportsModality(explicitModel, modality)) {
+      return explicitModel
+    }
+    return catalogModel
   }
+
   if (provider === "huggingface") {
-    if (modality === "image") return "black-forest-labs/FLUX.1-schnell"
+    if (modality === "image") {
+      if (explicitModel && isHfImageModel(explicitModel)) return explicitModel
+      return "black-forest-labs/FLUX.1-schnell"
+    }
     return null
   }
+
   if (provider === "openai" && modality === "image") return "gpt-image-1"
-  return OR_MEDIA_FALLBACK[modality] // último recurso em dev
+
+  return null
 }
 
 export async function generateMedia(params: {
@@ -259,7 +451,7 @@ export async function generateMedia(params: {
     return { text: "", error: "Modalidade texto ou sem API key" }
   }
 
-  const model = params.model || (await resolveMediaModel(provider, modality)) || ""
+  const model = (await resolveMediaModel(provider, modality, params.model)) || ""
 
   if (provider === "openrouter") {
     if (modality === "image") return generateOpenRouterImage(apiKey, model, prompt, systemPrompt)

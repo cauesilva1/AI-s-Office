@@ -10,6 +10,7 @@ import { Agent } from "@/lib/game/types"
 import { activeApiKey, modelsForProvider } from "@/lib/ai/providers"
 import { isProviderAuthError } from "@/lib/ai/remapModels"
 import { detectMediaModality, isMediaModality } from "@/lib/ai/mediaModality"
+import { catalogForProvider, roleLabel } from "@/lib/ai/sectorModelCatalog"
 
 async function callAgent(agent: Agent, prompt: string, sectorName: string): Promise<{
   text: string
@@ -207,6 +208,20 @@ export default function AgentChatPane() {
               className="bg-cream border border-ink text-[10px] text-ink px-1 py-0.5 max-w-full truncate focus:outline-none"
             >
               {(() => {
+                const curated = catalogForProvider(aiProvider, agent.sectorId)
+                if (curated.length > 0) {
+                  const listed = curated.some(c => c.id === agent.model)
+                  return (
+                    <>
+                      {!listed && <option value={agent.model}>{agent.model}</option>}
+                      {curated.map(c => (
+                        <option key={c.id} value={c.id}>
+                          [{roleLabel(c.role)}] {c.label}
+                        </option>
+                      ))}
+                    </>
+                  )
+                }
                 if (aiProvider === "huggingface" || aiProvider === "mock") {
                   const sectorModels = modelsForSector(agent.sectorId)
                   const extras = HF_IMAGE_MODELS.filter(m => !sectorModels.includes(m))

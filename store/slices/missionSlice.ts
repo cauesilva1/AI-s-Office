@@ -16,7 +16,10 @@ export type MissionSlice = {
   }) => Mission
   setActiveMission: (mission: Mission | null) => void
   updateActiveMission: (partial: Partial<Mission>) => void
-  completeActiveMission: (result: string) => void
+  completeActiveMission: (
+    result: string,
+    media?: { imageUrl?: string; videoUrl?: string; audioUrl?: string },
+  ) => void
   failActiveMission: (error: string) => void
 }
 
@@ -65,12 +68,15 @@ export const createMissionSlice: StateCreator<OfficeStore, [], [], MissionSlice>
     }
   }),
 
-  completeActiveMission: (result) => set((state) => {
+  completeActiveMission: (result, media) => set((state) => {
     if (!state.activeMission) return state
     const completed: Mission = {
       ...state.activeMission,
       status: "completed",
       finalResult: result,
+      imageUrl: media?.imageUrl,
+      videoUrl: media?.videoUrl,
+      audioUrl: media?.audioUrl,
       completedAt: Date.now(),
     }
     return {

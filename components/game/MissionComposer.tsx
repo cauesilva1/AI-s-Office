@@ -66,6 +66,7 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
     setProviderError,
     requestOpenSettings,
     serverProviders,
+    missionHistory,
   } = useGameStore()
 
   const [prompt, setPrompt] = useState("")
@@ -75,6 +76,12 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
   const [stepIndex, setStepIndex] = useState(-1)
   const [phase, setPhase] = useState<Phase>("idle")
   const [lastResult, setLastResult] = useState<string | null>(null)
+  const [lastPrompt, setLastPrompt] = useState<string | null>(null)
+  const [lastMedia, setLastMedia] = useState<{
+    imageUrl?: string
+    videoUrl?: string
+    audioUrl?: string
+  } | null>(null)
   const [showAdjust, setShowAdjust] = useState(false)
   const [manualSectorId, setManualSectorId] = useState(sectors[0]?.id || "engineering")
   const [manualRoute, setManualRoute] = useState<MissionStep[]>([])
@@ -135,6 +142,8 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
     setLiveRoute(validRoute)
     setStepIndex(0)
     setLastResult(null)
+    setLastPrompt(null)
+    setLastMedia(null)
     setPhase("running")
     setPreviewRoute([])
 
@@ -151,6 +160,7 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
 
     let previousResult = ""
     let consolidated = ""
+    let missionMediaOut: { imageUrl?: string; videoUrl?: string; audioUrl?: string } = {}
 
     try {
       for (let i = 0; i < validRoute.length; i++) {
@@ -241,6 +251,9 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
             ? `${result.text}\n\n[${mediaLabel(modality)} gerada pelo Design]`
             : result.text
           consolidated += `\n\n[Etapa ${i + 1} - ${sectorName}]\n${result.text}`
+          if (result.imageUrl) missionMediaOut.imageUrl = result.imageUrl
+          if (result.videoUrl) missionMediaOut.videoUrl = result.videoUrl
+          if (result.audioUrl) missionMediaOut.audioUrl = result.audioUrl
           continue
         }
 
@@ -325,12 +338,24 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
           ? `${result.text}\n\n[imagem gerada pelo Design]`
           : result.text
         consolidated += `\n\n[Etapa ${i + 1} - ${sectorName}]\n${result.text}`
+        if (result.imageUrl) missionMediaOut.imageUrl = result.imageUrl
       }
 
       setStepIndex(validRoute.length)
       const finalText = consolidated.trim()
-      completeActiveMission(finalText)
+      completeActiveMission(
+        finalText,
+        missionMediaOut.imageUrl || missionMediaOut.videoUrl || missionMediaOut.audioUrl
+          ? missionMediaOut
+          : undefined,
+      )
       setLastResult(finalText)
+      setLastPrompt(content)
+      setLastMedia(
+        missionMediaOut.imageUrl || missionMediaOut.videoUrl || missionMediaOut.audioUrl
+          ? missionMediaOut
+          : null,
+      )
       showToast("Missão concluída com sucesso")
       setPrompt("")
       setDecision(null)
@@ -366,6 +391,8 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
 
     setPhase("planning")
     setLastResult(null)
+    setLastPrompt(null)
+    setLastMedia(null)
     try {
       let route: MissionStep[]
       let routeDecision: RouteDecision | null = null
@@ -463,19 +490,21 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
         </div>
       )}
 
-      <label className="text-sm font-bold text-ink mb-2 block">Missão</label>
-      <p className="text-[11px] text-muted-ink mb-2">
-        Descreva o briefing. Você vê a rota antes de executar.
-      </p>
-      <textarea
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        onKeyDown={onKeyDown}
-        rows={compact ? 4 : 3}
-        disabled={missionBusy && phase !== "preview"}
-        placeholder="Ex.: Crie um landing page copy e um plano de deploy…"
-        className="w-full bg-paper border-[3px] border-ink p-3 text-ink text-sm placeholder:text-muted-ink focus:outline-none focus:border-coral resize-none disabled:opacity-50"
-      />
+      <div className="border-[3px] border-ink bg-cream p-3 mb-3">
+        <label className="text-sm font-bold text-ink mb-1 block">Briefing da missão</label>
+        <p className="text-[11px] text-muted-ink mb-2">
+          Descreva o que quer. Você vê a rota antes de executar.
+        </p>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={compact ? 5 : 4}
+          disabled={missionBusy && phase !== "preview"}
+          placeholder="Ex.: Crie um design de publicidade da Fanta com um herói segurando a garrafa…"
+          className="w-full bg-paper border-2 border-ink p-3 text-ink text-sm placeholder:text-muted-ink focus:outline-none focus:border-coral resize-none disabled:opacity-50 min-h-[6rem]"
+        />
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {phase === "idle" || phase === "planning" ? (
@@ -642,20 +671,90 @@ export default function MissionComposer({ compact = false }: { compact?: boolean
       )}
 
       {lastResult && phase === "idle" && (
-        <div className="mt-3 border-2 border-ink bg-cream p-2.5">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="font-bold text-[11px] text-ink">Resultado</span>
+        <div className="mt-3 border-[3px] border-ink bg-paper overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-navy text-cream border-b-[3px] border-ink">
+            <span className="font-bold text-[11px] uppercase tracking-wide">Resultado</span>
             <div className="flex items-center gap-1">
-              <button onClick={copyResult} className="p-1.5 border border-ink hover:bg-paper" title="Copiar">
+              <button onClick={copyResult} className="p-1.5 border border-cream/40 hover:bg-coral" title="Copiar">
                 <Copy className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => setLastResult(null)} className="p-1.5 border border-ink hover:bg-paper" title="Fechar">
+              <button
+                onClick={() => {
+                  setLastResult(null)
+                  setLastPrompt(null)
+                  setLastMedia(null)
+                }}
+                className="p-1.5 border border-cream/40 hover:bg-coral"
+                title="Fechar"
+              >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-          <div className="max-h-40 overflow-y-auto text-xs text-ink whitespace-pre-wrap leading-relaxed">
-            {lastResult}
+          <div className="p-3 space-y-3">
+            {lastMedia?.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={lastMedia.imageUrl}
+                alt="Imagem gerada na missão"
+                className="border-2 border-ink w-full max-h-80 object-contain bg-cream"
+              />
+            )}
+            {lastMedia?.videoUrl && (
+              <video
+                src={lastMedia.videoUrl}
+                controls
+                className="border-2 border-ink w-full max-h-80 bg-cream"
+              />
+            )}
+            {lastMedia?.audioUrl && (
+              <audio src={lastMedia.audioUrl} controls className="w-full" />
+            )}
+            {lastPrompt && (
+              <div className="border-2 border-ink bg-cream px-2.5 py-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-ink mb-1">
+                  Seu prompt
+                </div>
+                <p className="text-xs text-ink whitespace-pre-wrap leading-relaxed">{lastPrompt}</p>
+              </div>
+            )}
+            <div className="max-h-32 overflow-y-auto text-[11px] text-muted-ink whitespace-pre-wrap leading-relaxed border-t-2 border-ink/15 pt-2">
+              {lastResult}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "idle" && missionHistory.length > 0 && (
+        <div className="mt-3 border-2 border-ink bg-cream p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-ink mb-2">
+            Histórico recente
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {missionHistory.slice(0, 8).map(m => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => {
+                  setLastResult(m.finalResult || m.error || "(sem resultado)")
+                  setLastPrompt(m.prompt)
+                  setLastMedia(
+                    m.imageUrl || m.videoUrl || m.audioUrl
+                      ? { imageUrl: m.imageUrl, videoUrl: m.videoUrl, audioUrl: m.audioUrl }
+                      : null,
+                  )
+                }}
+                className="w-full text-left border-2 border-ink bg-paper px-2 py-1.5 hover:bg-cream-2"
+              >
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className={m.status === "completed" ? "text-grid font-bold" : "text-coral font-bold"}>
+                    {m.status === "completed" ? "OK" : "FALHOU"}
+                  </span>
+                  {m.imageUrl && <span className="text-coral">· imagem</span>}
+                </div>
+                <div className="text-[11px] text-ink line-clamp-2 mt-0.5">{m.prompt}</div>
+              </button>
+            ))}
           </div>
         </div>
       )}

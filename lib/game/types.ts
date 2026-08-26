@@ -85,6 +85,9 @@ export interface Mission {
   startedAt?: number
   completedAt?: number
   finalResult?: string
+  imageUrl?: string
+  videoUrl?: string
+  audioUrl?: string
   error?: string
 }
 

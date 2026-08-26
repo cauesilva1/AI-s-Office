@@ -154,10 +154,11 @@ export async function POST(req: NextRequest) {
         ensembleSlot: typeof ensembleSlot === "number" ? ensembleSlot : undefined,
       })
 
-      const mediaModel =
-        legacyImageModel && effectiveModality === "image"
-          ? String(model)
-          : await resolveMediaModel(provider, effectiveModality, typeof model === "string" ? model : undefined)
+      const mediaModel = await resolveMediaModel(
+        provider,
+        effectiveModality,
+        typeof model === "string" ? model : undefined,
+      )
 
       const generated = await generateMedia({
         provider,
@@ -167,6 +168,10 @@ export async function POST(req: NextRequest) {
         systemPrompt,
         model: mediaModel || undefined,
       })
+
+      if (generated.error) {
+        console.error("[media]", provider, effectiveModality, mediaModel, generated.error)
+      }
 
       if (generated.error && !generated.imageUrl && !generated.videoUrl && !generated.text) {
         return NextResponse.json({ error: generated.error }, { status: 200 })

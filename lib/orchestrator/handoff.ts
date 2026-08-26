@@ -24,5 +24,5 @@ export function routeIncludesDesign(route: { sectorId: string }[]): boolean {
   return route.some(s => s.sectorId === "design")
 }
 
-export { detectMediaModality, looksLikeImageRequest, isMediaModality } from "@/lib/ai/mediaModality"
+export { detectMediaModality, looksLikeImageRequest, looksLikeVisualCreativeRequest, isMediaModality } from "@/lib/ai/mediaModality"
 export type { MediaModality } from "@/lib/ai/mediaModality"

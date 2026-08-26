@@ -5,7 +5,7 @@ import {
   resolveRouterBackend,
   ROUTER_MODEL_OPENROUTER,
 } from "@/lib/ai/routerConfig"
-import { buildPipeline, type RouteDecision } from "@/lib/orchestrator/hybridRouter"
+import { buildPipeline, correctRouteForVisualCreative, type RouteDecision } from "@/lib/orchestrator/hybridRouter"
 import { Agent } from "@/lib/game/types"
 
 function stubAgent(id: string, sectorId: string): Agent {
@@ -76,5 +76,24 @@ describe("buildPipeline", () => {
     }
     const pipeline = buildPipeline(decision, agents)
     expect(pipeline.map(s => s.sectorId)).toEqual(["design"])
+  })
+})
+
+describe("correctRouteForVisualCreative", () => {
+  it("corrige fallback research→engineering para Design", () => {
+    const bad: RouteDecision = {
+      primarySectorId: "research",
+      pipeline: ["research", "engineering"],
+      strategy: "llm",
+      confidence: 0.5,
+      reason: "Falha no roteador",
+      routerModel: "meta-llama/Llama-3.1-8B-Instruct",
+    }
+    const fixed = correctRouteForVisualCreative(
+      "Crie um desing para uma publicidade da fanta com o homem aranha com uma garafa na mao",
+      bad,
+    )
+    expect(fixed.pipeline).toEqual(["design"])
+    expect(fixed.primarySectorId).toBe("design")
   })
 })

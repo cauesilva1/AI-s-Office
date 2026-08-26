@@ -1,6 +1,7 @@
 import { Agent, MissionStep, Sector } from "@/lib/game/types"
 import { AIProvider } from "@/lib/ai/providers"
 import { resolveRouterBackend, type RouterBackend } from "@/lib/ai/routerConfig"
+import { looksLikeVisualCreativeRequest } from "@/lib/ai/mediaModality"
 
 export interface RouteDecision {
   primarySectorId: string
@@ -14,11 +15,52 @@ export interface RouteDecision {
 
 const DEFAULT_TEMPLATES: Record<string, string[]> = {
   engineering: ["research", "engineering", "devops"],
-  design: ["research", "design", "growth"],
+  design: ["design"],
   research: ["research", "engineering"],
   data: ["research", "data", "engineering"],
   devops: ["engineering", "devops"],
   growth: ["research", "growth", "design"],
+}
+
+function designOnlyDecision(reason: string, base?: Partial<RouteDecision>): RouteDecision {
+  return {
+    primarySectorId: "design",
+    pipeline: ["design"],
+    strategy: base?.strategy || "llm",
+    confidence: Math.max(base?.confidence || 0.85, 0.85),
+    reason,
+    routerProvider: base?.routerProvider,
+    routerModel: base?.routerModel,
+  }
+}
+
+/** Corrige rotas ruins quando o pedido é claramente visual/publicitário */
+export function correctRouteForVisualCreative(
+  prompt: string,
+  decision: RouteDecision,
+): RouteDecision {
+  if (!looksLikeVisualCreativeRequest(prompt)) return decision
+
+  const hasDesign = decision.pipeline.includes("design")
+  const isWeakFallback =
+    decision.strategy === "fallback" ||
+    decision.confidence < 0.65 ||
+    (decision.pipeline[0] === "research" && decision.pipeline.includes("engineering") && !hasDesign)
+
+  if (!hasDesign || isWeakFallback) {
+    return designOnlyDecision(
+      `Pedido visual/publicitário → Design` +
+        (decision.reason ? ` (roteador: ${decision.reason})` : ""),
+      decision,
+    )
+  }
+
+  // Já tem design, mas pipeline misturou setores desnecessários
+  if (decision.pipeline.length > 1 && decision.pipeline[0] !== "design") {
+    return designOnlyDecision(`Priorizando Design para entrega visual · ${decision.reason}`, decision)
+  }
+
+  return decision
 }
 
 async function routeByLlm(params: {
@@ -95,13 +137,19 @@ export async function autoRoute(params: {
   })
 
   if (!backend) {
-    return {
+    const empty = {
       ...fallbackDecision("Sem API key do provedor ativo para o roteador."),
-      pipeline: ["research"],
+      pipeline: ["research"] as string[],
     }
+    return correctRouteForVisualCreative(params.prompt, empty)
   }
 
-  return routeByLlm({ prompt: params.prompt, sectors: params.sectors, backend })
+  const decision = await routeByLlm({
+    prompt: params.prompt,
+    sectors: params.sectors,
+    backend,
+  })
+  return correctRouteForVisualCreative(params.prompt, decision)
 }
 
 export function buildPipeline(decision: RouteDecision, agents: Agent[]): MissionStep[] {

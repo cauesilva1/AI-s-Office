@@ -53,7 +53,11 @@ export default function HeaderDropdown({
   }, [open])
 
   return (
-    <div ref={rootRef} className="relative">
+    <div
+      ref={rootRef}
+      className="relative"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         onClick={() => setOpen(v => !v)}

@@ -76,8 +76,9 @@ export const createProviderSlice: StateCreator<OfficeStore, [], [], ProviderSlic
 
   applyProviderSwitch: (provider, key) => {
     const state = get()
-    let { agents, changed: remapped } = remapAgentsForProvider(state.agents, provider)
+    let agents = state.agents
     let desks = state.desks
+    let remapped = 0
     let removed = 0
     let added = 0
 
@@ -99,6 +100,11 @@ export const createProviderSlice: StateCreator<OfficeStore, [], [], ProviderSlic
       added = roster.added
       removed = roster.removed
     }
+
+    // Sempre após montar o roster — corrige modelos OR/OpenAI que sobraram no HF etc.
+    const remap = remapAgentsForProvider(agents, provider)
+    agents = remap.agents
+    remapped = remap.changed
 
     const mode = isSoloProvider(provider)
       ? ("solo" as const)

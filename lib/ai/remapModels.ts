@@ -1,6 +1,7 @@
 import { Agent } from "@/lib/game/types"
-import { SECTOR_MODELS, isImageModel } from "@/lib/game/constants"
+import { SECTOR_MODELS, isHfImageModel, isImageModel } from "@/lib/game/constants"
 import { AIProvider, modelsForProvider } from "@/lib/ai/providers"
+import { OR_SECTOR_CATALOG } from "@/lib/ai/sectorModelCatalog"
 
 /** Defaults por setor quando o provedor não é HF */
 export const SECTOR_DEFAULTS: Record<Exclude<AIProvider, "huggingface" | "mock">, Record<string, string[]>> = {
@@ -28,39 +29,13 @@ export const SECTOR_DEFAULTS: Record<Exclude<AIProvider, "huggingface" | "mock">
     devops: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
     growth: ["llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b"],
   },
-  // Free tier OpenRouter (max_price=0) — ver https://openrouter.ai/models?max_price=0
-  openrouter: {
-    engineering: [
-      "poolside/laguna-s-2.1:free",
-      "stealth/ox-alpha",
-      "cohere/north-mini-code:free",
-    ],
-    design: [
-      "google/gemma-4-31b-it:free",
-      "bytedance-seed/seedream-5-0-lite",
-      "alibaba/wan-3.0",
-    ],
-    research: [
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "z-ai/glm-5.2:free",
-      "nvidia/nemotron-3-super-120b-a12b:free",
-    ],
-    data: [
-      "z-ai/glm-5.2:free",
-      "nvidia/nemotron-3-super-120b-a12b:free",
-      "liquid/lfm-2.5-2.6b:free",
-    ],
-    devops: [
-      "poolside/laguna-xs-2.1:free",
-      "cohere/north-mini-code:free",
-      "nvidia/nemotron-3.5-lightning:free",
-    ],
-    growth: [
-      "google/gemma-4-26b-a4b-it:free",
-      "thinkingmachines/inkling-small:free",
-      "dots-studio/dots-3-note-preview:free",
-    ],
-  },
+  // Catálogo curado OR free — ver sectorModelCatalog.ts
+  openrouter: Object.fromEntries(
+    Object.entries(OR_SECTOR_CATALOG).map(([sectorId, picks]) => [
+      sectorId,
+      picks.map(p => p.id),
+    ]),
+  ),
 }
 
 function catalogFor(provider: AIProvider): Set<string> {
@@ -89,7 +64,7 @@ function defaultForSector(provider: AIProvider, sectorId: string, slot: number):
 export function isModelValidForProvider(model: string, provider: AIProvider): boolean {
   if (provider === "mock") return true
   if (provider === "huggingface") {
-    return catalogFor(provider).has(model) || isImageModel(model) || model.includes("/")
+    return catalogFor(provider).has(model) || isHfImageModel(model)
   }
   // OpenAI etc.: só aceita o catálogo (ou custom sem parecer HF org/name de imagem)
   if (catalogFor(provider).has(model)) return true
